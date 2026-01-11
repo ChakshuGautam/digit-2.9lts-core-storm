@@ -1,0 +1,511 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: docker-postgres
+    environment:
+      POSTGRES_USER: egov
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      POSTGRES_DB: egov
+    volumes:
+    - postgres_data:/var/lib/docker-postgresql/data
+    ports:
+    - 5432:5432
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U egov
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+    - egov-network
+
+  redis:
+    image: redis:7.2.4
+    container_name: sdcrs-redis
+    ports:
+    - 6379:6379
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+    - egov-network
+
+  kafka:
+    image: docker.io/bitnami/kafka:3.6.1
+    container_name: sdcrs-kafka
+    environment:
+      - ALLOW_PLAINTEXT_LISTENER=yes
+
+      # KRaft settings
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+
+      # Listeners (broker on 9092, controller on 9093)
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+
+    ports:
+    - 9092:9092
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+    - egov-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.3
+    container_name: sdcrs-elasticsearch
+    environment:
+    - discovery.type=single-node
+    - xpack.security.enabled=false
+    - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+    - es_data:/usr/share/elasticsearch/data
+    ports:
+    - 9200:9200
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -f http://localhost:9200/_cluster/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+    - egov-network
+
+  egov-enc-service:
+    image: egovio/egov-enc-service:v2.9.2-4a60f20
+    container_name: egov-enc-service
+    depends_on:
+      egov-mdms-service:
+        condition: service_healthy
+      mdms-tenant-seed:
+        condition: service_completed_successfully
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      SERVER_PORT: 1234
+      OTEL_TRACES_EXPORTER: none
+      MASTER_PASSWORD: asd@#$@$!132123
+      MASTER_SALT: qweasdzx
+      MASTER_INITIALVECTOR: qweasdzxqwea
+      MASTER_PASSWORD_PROVIDER: software
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094
+      EGOV_MDMS_SEARCH_ENDPOINT: /mdms-v2/v1/_search
+      EGOV_STATE_LEVEL_TENANT_ID: pg
+      STATE_LEVEL_TENANT_ID: pg.citya
+    ports:
+    - 1234:1234
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:1234/egov-enc-service/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+    - egov-network
+
+  egov-mdms-service:
+    image: egovio/mdms-v2:v2.9.2-4a60f20
+    container_name: egov-mdms-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8094
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8094:8094
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8094/mdms-v2/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+    - egov-network
+
+  egov-idgen:
+    image: egovio/egov-idgen:v2.9.2-4a60f20
+    container_name: egov-idgen
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
+      MDMS_HOST: http://egov-mdms-service:8094/
+      EGOV_MDMS_SEARCH_ENDPOINT: mdms-v2/v1/_search
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8088
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8088:8088
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8088/egov-idgen/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  egov-user:
+    image: egovio/egov-user:master-fa75ba8
+    container_name: egov-user
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      egov-enc-service:
+        condition: service_healthy
+      mdms-tenant-seed:
+        condition: service_completed_successfully
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SERVER_PORT: 8107
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094
+      EGOV_MDMS_SEARCH_ENDPOINT: /mdms-v2/v1/_search
+      MDMS_HOST: http://egov-mdms-service:8094
+      EGOV_OTP_HOST: http://egov-user:8107
+      EGOV_ENC_HOST: http://egov-enc-service:1234
+      EGOV_IDGEN_HOST: http://egov-idgen:8088
+      EGOV_STATE_LEVEL_TENANT_ID: pg
+      STATE_LEVEL_TENANT_ID: pg
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8107:8107
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8107/user/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  egov-workflow-v2:
+    image: egovio/egov-workflow-v2:v2.9.2-4a60f20
+    container_name: egov-workflow-v2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      mdms-workflow-seed:
+        condition: service_completed_successfully
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8109
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
+      EGOV_MDMS_SEARCH_ENDPOINT: mdms-v2/v1/_search
+      EGOV_USER_HOST: http://egov-user:8107/
+      STATE_LEVEL_TENANT_ID: pg.citya
+      EGOV_STATE_LEVEL_TENANT_ID: pg
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8109:8109
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8109/egov-workflow-v2/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  egov-localization:
+    image: egovio/egov-localization:v2.9.2-4a60f20
+    container_name: egov-localization
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SERVER_PORT: 8096
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8096:8096
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8096/localization/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  egov-location:
+    image: egovio/egov-location:v2.9.2-4a60f20
+    container_name: egov-location
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8084
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8084:8084
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/egov-location/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  egov-accesscontrol:
+    image: egovio/egov-accesscontrol:v2.9.2-4a60f20
+    container_name: egov-accesscontrol
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8090
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
+      OTEL_TRACES_EXPORTER: none
+    ports:
+    - 8090:8090
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/access/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  egov-persister:
+    image: egovio/egov-persister:v2.9.2-4a60f20
+    container_name: egov-persister
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SERVER_PORT: 8091
+      EGOV_PERSIST_YML_REPO_PATH: /persister-config/
+      OTEL_TRACES_EXPORTER: none
+    volumes:
+    - ./configs/persister:/persister-config:ro
+    ports:
+    - 8091:8091
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8091/common-persist/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  mdms-tenant-seed:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+    volumes:
+      - ./db/tenant-seed.sql:/tenant-seed.sql:ro
+    entrypoint: >
+      bash -c "
+        echo 'Seeding tenant master for MDMS...';
+        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /tenant-seed.sql
+        echo 'Tenant seed complete'
+      "
+    networks:
+      - egov-network
+    restart: "no"
+
+  mdms-workflow-seed:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+      mdms-tenant-seed:
+        condition: service_completed_successfully
+    volumes:
+      - ./db/mdms-workflow-seed.sql:/workflow-seed.sql:ro
+    entrypoint: >
+      bash -c "
+        echo 'Seeding workflow business service config...';
+        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /workflow-seed.sql
+        echo 'Workflow MDMS seed complete'
+      "
+    networks:
+      - egov-network
+    restart: "no"
+
+  localization-seed:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+      egov-localization:
+        condition: service_healthy
+    volumes:
+      - ./db/localization-seed.sql:/localization-seed.sql:ro
+    entrypoint: >
+      bash -c "
+        echo 'Seeding localization data...';
+        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /localization-seed.sql
+        echo 'Localization seed complete'
+      "
+    networks:
+      - egov-network
+    restart: "no"
+
+  db-seed:
+    image: postgres:16
+    container_name: db-seed-container
+    depends_on:
+      postgres:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+      mdms-tenant-seed:
+        condition: service_completed_successfully
+      mdms-workflow-seed:
+        condition: service_completed_successfully
+      localization-seed:
+        condition: service_completed_successfully
+      egov-workflow-v2:
+        condition: service_healthy
+      egov-localization:
+        condition: service_healthy
+      egov-accesscontrol:
+        condition: service_healthy
+    volumes:
+      - ./db/seed.sql:/seed.sql:ro
+    entrypoint: >
+      bash -c "
+        echo 'Waiting a bit for services to run Flyway...' ;
+        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /seed.sql
+        echo 'Done loading seed data'
+      "
+    networks:
+      - egov-network
+    restart: "no"
+
+networks:
+  egov-network:
+    driver: bridge
+
+volumes:
+  postgres_data: null
+  es_data: null
+  filestore_data: null
