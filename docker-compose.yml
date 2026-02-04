@@ -549,6 +549,92 @@ services:
     restart: "no"
 
   # ===========================================================================
+  # PGR Services (Public Grievance Redressal)
+  # ===========================================================================
+  pgr-services:
+    image: egovio/pgr-services:v2.9.0-8b3aa24-4
+    container_name: pgr-services
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+      egov-idgen:
+        condition: service_healthy
+      egov-user:
+        condition: service_healthy
+      egov-workflow-v2:
+        condition: service_healthy
+      egov-localization:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_TABLE: pgr_services_schema
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_CONSUMER_GROUP_ID: egov-pgr-services
+      SERVER_PORT: 8080
+      EGOV_IDGEN_HOST: http://egov-idgen:8088/
+      EGOV_WORKFLOW_HOST: http://egov-workflow-v2:8109/
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
+      EGOV_LOCALIZATION_HOST: http://egov-localization:8096/
+      EGOV_USER_HOST: http://egov-user:8107/
+      EGOV_LOCATION_HOST: http://egov-location:8084/
+      EGOV_HRMS_HOST: http://egov-user:8107/
+      EGOV_URL_SHORTNER_HOST: http://egov-url-shortening:8080/
+      EGOV_UI_APP_HOST: http://localhost:18080
+      NOTIFICATION_SMS_ENABLED: 'false'
+      NOTIFICATION_EMAIL_ENABLED: 'false'
+      NEW_COMPLAINT_ENABLED: 'true'
+      REASSIGN_COMPLAINT_ENABLED: 'true'
+      REOPEN_COMPLAINT_ENABLED: 'true'
+      COMMENT_BY_EMPLOYEE_NOTIF_ENABLED: 'false'
+      NOTIFICATION_ALLOWED_ON_STATUS: 'open,assigned,rejected,resolved'
+      EGOV_USR_EVENTS_NOTIFICATION_ENABLED: 'true'
+      EGOV_USR_EVENTS_CREATE_TOPIC: persist-user-events-async
+      PGR_STATELEVEL_TENANTID: pg
+      STATE_LEVEL_TENANT_ID: pg
+      EGOV_STATE_LEVEL_TENANT_ID: pg
+      JAVA_OPTS: '-Xmx192m -Xms192m'
+      OTEL_TRACES_EXPORTER: none
+    ports:
+      - "18082:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/pgr-services/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - egov-network
+
+  # ===========================================================================
+  # DIGIT UI (React Frontend)
+  # ===========================================================================
+  digit-ui:
+    image: egovio/digit-ui:v0.0.1-e3046cc-87
+    container_name: digit-ui
+    ports:
+      - "18080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/digit-ui/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - egov-network
+
+  # ===========================================================================
   # Kong API Gateway (DB-less mode)
   # ===========================================================================
   kong:

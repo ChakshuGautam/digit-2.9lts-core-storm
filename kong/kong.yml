@@ -380,3 +380,54 @@ services:
         config:
           replace:
             uri: /boundary-service/actuator/health
+
+  # ===========================================================================
+  # PGR Services (Public Grievance Redressal)
+  # ===========================================================================
+  - name: pgr-service
+    url: http://pgr-services:8080
+    tags:
+      - rainmaker
+      - pgr
+    routes:
+      - name: pgr-route
+        paths:
+          - /pgr-services
+        strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - X-API-Key
+          hide_credentials: true
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: local
+
+  - name: health-pgr
+    url: http://pgr-services:8080
+    routes:
+      - name: health-pgr-route
+        paths:
+          - /health/pgr
+        strip_path: true
+    plugins:
+      - name: request-transformer
+        config:
+          replace:
+            uri: /pgr-services/health
+
+  # ===========================================================================
+  # DIGIT UI (Frontend)
+  # ===========================================================================
+  - name: digit-ui
+    url: http://digit-ui:80
+    tags:
+      - frontend
+      - ui
+    routes:
+      - name: digit-ui-route
+        paths:
+          - /digit-ui
+        strip_path: false

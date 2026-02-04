@@ -31,5 +31,10 @@ VALUES
    '{"businessService":"Default","isStatelevel":"false","active":"true"}'::jsonb,
    TRUE, 'system-mdms-seed', 'system-mdms-seed',
    EXTRACT(EPOCH FROM NOW())::bigint * 1000,
+   EXTRACT(EPOCH FROM NOW())::bigint * 1000),
+  ('workflow-bsm-pgr', 'pg', 'Workflow.BusinessServiceMasterConfig.PGR', 'Workflow.BusinessServiceMasterConfig',
+   '{"businessService":"PGR","isStatelevel":"true","active":"true"}'::jsonb,
+   TRUE, 'system-mdms-seed', 'system-mdms-seed',
+   EXTRACT(EPOCH FROM NOW())::bigint * 1000,
    EXTRACT(EPOCH FROM NOW())::bigint * 1000)
 ON CONFLICT (tenantid, schemacode, uniqueidentifier) DO NOTHING;
