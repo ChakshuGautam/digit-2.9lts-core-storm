@@ -289,13 +289,29 @@ jobs:
               sleep 15
             done
           ' || true
+
+          # Extra wait for services to fully stabilize (especially PGR-Services)
+          echo "Waiting 30s for services to fully stabilize..."
+          sleep 30
         env:
           TILT_PID: $TILT_PID
 
       - name: Run health checks via Tilt
         run: |
-          echo "Running health checks..."
-          bash scripts/health-check.sh http://localhost
+          echo "Running health checks with retries..."
+          for i in 1 2 3; do
+            echo "Attempt $i..."
+            if bash scripts/health-check.sh http://localhost; then
+              echo "Health checks passed!"
+              exit 0
+            fi
+            if [ $i -lt 3 ]; then
+              echo "Some services not ready, waiting 30s before retry..."
+              sleep 30
+            fi
+          done
+          echo "Health checks failed after 3 attempts"
+          exit 1
 
       - name: Run smoke tests via Tilt
         run: |
