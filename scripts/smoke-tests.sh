@@ -1,7 +1,7 @@
 #!/bin/bash
 # Smoke tests for DIGIT core services
 
-BASE_URL="${1:-http://localhost}"
+BASE_URL="${1:-http://0.0.0.0}"
 
 echo "=== DIGIT Core Services Smoke Tests ==="
 echo "Base URL: $BASE_URL"
@@ -95,6 +95,28 @@ fi
 echo -n "8. Elasticsearch cluster... "
 response=$(curl -sS "$BASE_URL:19200/_cluster/health" 2>&1)
 if echo "$response" | grep -q "green\|yellow"; then
+  echo -e "\033[32mPASS\033[0m"
+  passed=$((passed + 1))
+else
+  echo -e "\033[31mFAIL\033[0m"
+  failed=$((failed + 1))
+fi
+
+# Test 9: PGR service health
+echo -n "9. PGR service health... "
+response=$(curl -sS "$BASE_URL:18083/pgr-services/health" 2>&1)
+if echo "$response" | grep -q "UP"; then
+  echo -e "\033[32mPASS\033[0m"
+  passed=$((passed + 1))
+else
+  echo -e "\033[31mFAIL\033[0m"
+  failed=$((failed + 1))
+fi
+
+# Test 10: DIGIT UI accessible
+echo -n "10. DIGIT UI accessible... "
+response=$(curl -sS "$BASE_URL:18080/" 2>&1)
+if echo "$response" | grep -q "html\|<!DOCTYPE"; then
   echo -e "\033[32mPASS\033[0m"
   passed=$((passed + 1))
 else
