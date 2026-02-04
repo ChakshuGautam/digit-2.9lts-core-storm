@@ -72,9 +72,19 @@ dc_resource('kong', labels=['gateway'],
         link('http://localhost:18002', 'Manager GUI'),
     ])
 
+# ==================== PGR Services ====================
+dc_resource('pgr-services', labels=['pgr'],
+    links=[
+        link('http://localhost:18083/pgr-services/health', 'Health'),
+    ])
+
+dc_resource('digit-ui', labels=['frontend'],
+    links=[
+        link('http://localhost:18080/digit-ui/', 'UI'),
+    ])
+
 # ==================== Seed Jobs ====================
 dc_resource('db-seed', labels=['seeds'], auto_init=True)
-dc_resource('idgen-seed', labels=['seeds'], auto_init=True)
 dc_resource('mdms-tenant-seed', labels=['seeds'], auto_init=True)
 dc_resource('mdms-workflow-seed', labels=['seeds'], auto_init=True)
 dc_resource('localization-seed', labels=['seeds'], auto_init=True)
@@ -121,7 +131,7 @@ cmd_button(
 # Infrastructure:
 #   - Postgres:      15432
 #   - Redis:         16379
-#   - Kafka:         19092
+#   - Redpanda:      19092
 #   - Elasticsearch: 19200
 #
 # API Gateway (Kong):
@@ -130,7 +140,7 @@ cmd_button(
 #   - Manager GUI:   18002
 #   - Status:        18100
 #
-# Core Services (internal, use Kong for external access):
+# Core Services:
 #   - MDMS:          18094
 #   - ENC:           11234
 #   - IDGEN:         18088
@@ -141,3 +151,7 @@ cmd_button(
 #   - Boundary-v2:   18081
 #   - AccessControl: 18090
 #   - Persister:     18091
+#
+# PGR & Frontend:
+#   - PGR-Services:  18083
+#   - DIGIT-UI:      18080
