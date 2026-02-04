@@ -692,10 +692,14 @@ services:
   # DIGIT UI (React Frontend)
   # ===========================================================================
   digit-ui:
-    image: egovio/digit-ui:v0.0.1-e3046cc-87
+    image: digit-ui-dev
     container_name: digit-ui
     ports:
       - "18080:80"
+    volumes:
+      # Mount globalConfigs for runtime configuration (don't mount index.html - built image has it with bundle scripts)
+      # CCRS_PATH can be overridden via environment variable, defaults to sibling directory
+      - ${CCRS_PATH:-../Citizen-Complaint-Resolution-System}/configs/assets/globalConfigsPGR.js:/var/web/digit-ui/globalConfigs.js:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -707,6 +711,7 @@ services:
 
   # ===========================================================================
   # Kong API Gateway (DB-less mode)
+  # Main entry point: http://localhost:18000/digit-ui/
   # ===========================================================================
   kong:
     image: kong:3.6

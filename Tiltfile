@@ -4,6 +4,27 @@
 # Load extensions
 load('ext://uibutton', 'cmd_button', 'location')
 
+# ==================== Configuration ====================
+# Path to CCRS frontend code (for live UI development)
+# Clone CCRS repo as sibling: git clone https://github.com/egovernments/Citizen-Complaint-Resolution-System.git ../Citizen-Complaint-Resolution-System
+CCRS_PATH = os.getenv('CCRS_PATH', '../Citizen-Complaint-Resolution-System')
+FRONTEND_PATH = CCRS_PATH + '/frontend/micro-ui'
+
+# ==================== DIGIT UI with Live Update ====================
+# Build digit-ui from local CCRS code with live sync
+# Note: globalConfigs.js is mounted via docker-compose volume
+docker_build(
+    'digit-ui-dev',
+    context=FRONTEND_PATH,
+    dockerfile=FRONTEND_PATH + '/web/docker/Dockerfile',
+    build_args={'WORK_DIR': '.'},
+    live_update=[
+        # Sync built JS/CSS (after local webpack build)
+        # Note: Don't sync public/ - it would overwrite the built index.html which has bundle script tags
+        sync(FRONTEND_PATH + '/web/build/', '/var/web/digit-ui/'),
+    ],
+)
+
 # Load docker-compose configuration
 docker_compose('./docker-compose.yml')
 
@@ -80,7 +101,7 @@ dc_resource('pgr-services', labels=['pgr'],
 
 dc_resource('digit-ui', labels=['frontend'],
     links=[
-        link('http://localhost:18080/digit-ui/', 'UI'),
+        link('http://localhost:18000/digit-ui/', 'UI via Kong'),
     ])
 
 # ==================== Seed Jobs ====================
