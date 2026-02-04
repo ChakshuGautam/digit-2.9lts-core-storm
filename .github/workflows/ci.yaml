@@ -69,29 +69,42 @@ jobs:
 
           # Wait for each seed container to exit
           for seed in $SEEDS; do
-            echo "Waiting for $seed..."
+            echo ""
+            echo ">>> Waiting for $seed..."
+            WAIT_COUNT=0
             while true; do
-              STATUS=$(docker compose ps --format json | jq -r "select(.Service == \"$seed\") | .State" 2>/dev/null || echo "not_found")
-              if [ "$STATUS" = "exited" ]; then
-                # Check exit code
-                EXIT_CODE=$(docker compose ps --format json | jq -r "select(.Service == \"$seed\") | .ExitCode" 2>/dev/null || echo "0")
-                if [ "$EXIT_CODE" != "0" ]; then
-                  echo "ERROR: $seed failed with exit code $EXIT_CODE"
-                  docker compose logs "$seed"
-                  exit 1
-                fi
-                echo "$seed completed successfully"
-                break
-              elif [ "$STATUS" = "not_found" ]; then
-                echo "Waiting for $seed to start..."
+              # Get container info
+              CONTAINER_JSON=$(docker compose ps --format json 2>/dev/null | jq -s "map(select(.Service == \"$seed\")) | .[0]" 2>/dev/null)
+
+              if [ "$CONTAINER_JSON" = "null" ] || [ -z "$CONTAINER_JSON" ]; then
+                echo "    [$seed] Waiting to start... (${WAIT_COUNT}s)"
               else
-                echo "$seed status: $STATUS"
+                STATUS=$(echo "$CONTAINER_JSON" | jq -r '.State // "unknown"')
+                HEALTH=$(echo "$CONTAINER_JSON" | jq -r '.Health // "none"')
+                EXIT_CODE=$(echo "$CONTAINER_JSON" | jq -r '.ExitCode // "0"')
+
+                if [ "$STATUS" = "exited" ]; then
+                  if [ "$EXIT_CODE" != "0" ]; then
+                    echo "    [$seed] FAILED with exit code $EXIT_CODE"
+                    docker compose logs "$seed"
+                    exit 1
+                  fi
+                  echo "    [$seed] COMPLETED successfully"
+                  break
+                elif [ "$STATUS" = "running" ]; then
+                  echo "    [$seed] Running... (${WAIT_COUNT}s, health: $HEALTH)"
+                else
+                  echo "    [$seed] Status: $STATUS (${WAIT_COUNT}s)"
+                fi
               fi
+
               sleep 5
+              WAIT_COUNT=$((WAIT_COUNT + 5))
             done
           done
 
-          echo "All seeds completed successfully!"
+          echo ""
+          echo "=== All seeds completed successfully! ==="
 
       - name: Verify seed data ingestion
         run: |
