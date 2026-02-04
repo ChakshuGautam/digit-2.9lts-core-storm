@@ -62,10 +62,14 @@ jobs:
 
       - name: Wait for seeds to complete
         run: |
-          echo "Waiting for ALL seed containers to finish (no timeout)..."
+          echo "Waiting for seed containers to finish (timeout: 10 minutes)..."
 
           # List of all seed containers
           SEEDS="idgen-seed mdms-tenant-seed mdms-workflow-seed localization-seed db-seed"
+
+          # Overall timeout in seconds (10 minutes)
+          TIMEOUT=600
+          START_TIME=$(date +%s)
 
           # Wait for each seed container to exit
           for seed in $SEEDS; do
@@ -73,11 +77,39 @@ jobs:
             echo ">>> Waiting for $seed..."
             WAIT_COUNT=0
             while true; do
+              # Check overall timeout
+              CURRENT_TIME=$(date +%s)
+              ELAPSED=$((CURRENT_TIME - START_TIME))
+              if [ $ELAPSED -gt $TIMEOUT ]; then
+                echo ""
+                echo "=== TIMEOUT: Seeds did not complete in ${TIMEOUT}s ==="
+                echo ""
+                echo "=== Container Status ==="
+                docker compose ps
+                echo ""
+                echo "=== Checking why seeds haven't started ==="
+                for s in $SEEDS; do
+                  CONTAINER_JSON=$(docker compose ps --format json 2>/dev/null | jq -s "map(select(.Service == \"$s\")) | .[0]" 2>/dev/null)
+                  if [ "$CONTAINER_JSON" = "null" ] || [ -z "$CONTAINER_JSON" ]; then
+                    echo "[$s] NOT STARTED - checking dependencies..."
+                    # Show the depends_on for this service
+                    docker compose config --services 2>/dev/null | grep -q "$s" && echo "  Service exists in compose"
+                  else
+                    STATUS=$(echo "$CONTAINER_JSON" | jq -r '.State // "unknown"')
+                    echo "[$s] Status: $STATUS"
+                  fi
+                done
+                echo ""
+                echo "=== Services with health issues ==="
+                docker compose ps --format json | jq -r 'select(.Health != "healthy" and .Health != "") | "\(.Name): \(.Health)"'
+                exit 1
+              fi
+
               # Get container info
               CONTAINER_JSON=$(docker compose ps --format json 2>/dev/null | jq -s "map(select(.Service == \"$seed\")) | .[0]" 2>/dev/null)
 
               if [ "$CONTAINER_JSON" = "null" ] || [ -z "$CONTAINER_JSON" ]; then
-                echo "    [$seed] Waiting to start... (${WAIT_COUNT}s)"
+                echo "    [$seed] Waiting to start... (${WAIT_COUNT}s, total: ${ELAPSED}s)"
               else
                 STATUS=$(echo "$CONTAINER_JSON" | jq -r '.State // "unknown"')
                 HEALTH=$(echo "$CONTAINER_JSON" | jq -r '.Health // "none"')
