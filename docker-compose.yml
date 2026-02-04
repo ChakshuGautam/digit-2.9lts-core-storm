@@ -9,7 +9,7 @@ services:
     volumes:
     - postgres_data:/var/lib/docker-postgresql/data
     ports:
-    - 5432:5432
+    - 15432:5432
     healthcheck:
       test:
       - CMD-SHELL
@@ -22,9 +22,9 @@ services:
 
   redis:
     image: redis:7.2.4
-    container_name: sdcrs-redis
+    container_name: digit-redis
     ports:
-    - 6379:6379
+    - 16379:6379
     healthcheck:
       test:
       - CMD
@@ -36,39 +36,41 @@ services:
     networks:
     - egov-network
 
-  kafka:
-    image: docker.io/bitnami/kafka:3.6.1
-    container_name: sdcrs-kafka
-    environment:
-      - ALLOW_PLAINTEXT_LISTENER=yes
-
-      # KRaft settings
-      - KAFKA_CFG_NODE_ID=0
-      - KAFKA_CFG_PROCESS_ROLES=controller,broker
-      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
-
-      # Listeners (broker on 9092, controller on 9093)
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
-
+  redpanda:
+    image: redpandadata/redpanda:v24.1.1
+    container_name: digit-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp
+      - '1'
+      - --memory
+      - 512M
+      - --overprovisioned
+      - --node-id
+      - '0'
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+      - --pandaproxy-addr
+      - PLAINTEXT://0.0.0.0:8082
+      - --advertise-pandaproxy-addr
+      - PLAINTEXT://redpanda:8082
     ports:
-    - 9092:9092
+      - 19092:9092
+      - 18082:8082
     healthcheck:
-      test:
-        - CMD-SHELL
-        - /opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1
+      test: ["CMD", "rpk", "cluster", "health"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 10
     networks:
-    - egov-network
+      - egov-network
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.10.3
-    container_name: sdcrs-elasticsearch
+    container_name: digit-elasticsearch
     environment:
     - discovery.type=single-node
     - xpack.security.enabled=false
@@ -76,7 +78,7 @@ services:
     volumes:
     - es_data:/usr/share/elasticsearch/data
     ports:
-    - 9200:9200
+    - 19200:9200
     healthcheck:
       test:
       - CMD-SHELL
@@ -105,6 +107,7 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_TABLE: enc_schema_version
       SERVER_PORT: 1234
       OTEL_TRACES_EXPORTER: none
       MASTER_PASSWORD: asd@#$@$!132123
@@ -116,7 +119,7 @@ services:
       EGOV_STATE_LEVEL_TENANT_ID: pg
       STATE_LEVEL_TENANT_ID: pg.citya
     ports:
-    - 1234:1234
+    - 11234:1234
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:1234/egov-enc-service/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -132,7 +135,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
@@ -144,11 +147,12 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_FLYWAY_TABLE: mdms_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8094
       OTEL_TRACES_EXPORTER: none
     ports:
-    - 8094:8094
+    - 18094:8094
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8094/mdms-v2/health >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -163,26 +167,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
+        condition: service_healthy
+      egov-mdms-service:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
       SPRING_DATASOURCE_USERNAME: egov
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
       SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
       SPRING_FLYWAY_USER: egov
       SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_ENABLED: 'true'
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
-      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_TABLE: idgen_schema_version
+      SPRING_FLYWAY_LOCATIONS: classpath:db/migration/main
       EGOV_MDMS_HOST: http://egov-mdms-service:8094/
       MDMS_HOST: http://egov-mdms-service:8094/
       EGOV_MDMS_SEARCH_ENDPOINT: mdms-v2/v1/_search
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8088
       OTEL_TRACES_EXPORTER: none
+      MANAGEMENT_HEALTH_DB_ENABLED: 'false'
     ports:
-    - 8088:8088
+    - 18088:8088
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8088/egov-idgen/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -198,7 +207,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -216,7 +225,8 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_FLYWAY_TABLE: user_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
       SERVER_PORT: 8107
@@ -230,7 +240,7 @@ services:
       STATE_LEVEL_TENANT_ID: pg
       OTEL_TRACES_EXPORTER: none
     ports:
-    - 8107:8107
+    - 18107:8107
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8107/user/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -246,7 +256,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
       mdms-workflow-seed:
         condition: service_completed_successfully
@@ -260,7 +270,8 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_FLYWAY_TABLE: workflow_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8109
       EGOV_MDMS_HOST: http://egov-mdms-service:8094/
       EGOV_MDMS_SEARCH_ENDPOINT: mdms-v2/v1/_search
@@ -269,7 +280,7 @@ services:
       EGOV_STATE_LEVEL_TENANT_ID: pg
       OTEL_TRACES_EXPORTER: none
     ports:
-    - 8109:8109
+    - 18109:8109
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8109/egov-workflow-v2/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -285,7 +296,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -299,13 +310,14 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_FLYWAY_TABLE: localization_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SPRING_REDIS_HOST: redis
       SPRING_REDIS_PORT: 6379
       SERVER_PORT: 8096
       OTEL_TRACES_EXPORTER: none
     ports:
-    - 8096:8096
+    - 18096:8096
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8096/localization/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -321,10 +333,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
       SPRING_DATASOURCE_USERNAME: egov
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
       SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
@@ -333,14 +345,59 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_FLYWAY_TABLE: location_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8084
       EGOV_MDMS_HOST: http://egov-mdms-service:8094/
       OTEL_TRACES_EXPORTER: none
     ports:
-    - 8084:8084
+    - 18084:8084
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/egov-location/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+    - egov-network
+
+  boundary-service:
+    image: egovio/boundary-service:v2.9.2-4a60f20
+    container_name: boundary-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_TABLE: boundary_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SERVER_PORT: 8081
+      SERVER_SERVLET_CONTEXT_PATH: /boundary-service
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094
+      EGOV_MDMS_SEARCH_ENDPOINT: /mdms-v2/v1/_search
+      EGOV_USER_HOST: http://egov-user:8107
+      EGOV_IDGEN_HOST: http://egov-idgen:8088
+      EGOV_LOCALIZATION_HOST: http://egov-localization:8096
+      STATE_LEVEL_TENANT_ID: pg
+      OTEL_TRACES_EXPORTER: none
+      MANAGEMENT_HEALTH_DB_ENABLED: 'false'
+    ports:
+    - 18081:8081
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/boundary-service/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -354,7 +411,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
@@ -366,12 +423,13 @@ services:
       SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
       SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
       SPRING_FLYWAY_ENABLED: 'true'
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_FLYWAY_TABLE: accesscontrol_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8090
       EGOV_MDMS_HOST: http://egov-mdms-service:8094/
       OTEL_TRACES_EXPORTER: none
     ports:
-    - 8090:8090
+    - 18090:8090
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8090/access/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -387,20 +445,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      kafka:
+      redpanda:
         condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
       SPRING_DATASOURCE_USERNAME: egov
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8091
       EGOV_PERSIST_YML_REPO_PATH: /persister-config/
       OTEL_TRACES_EXPORTER: none
     volumes:
     - ./configs/persister:/persister-config:ro
     ports:
-    - 8091:8091
+    - 18091:8091
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8091/common-persist/actuator/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
@@ -500,6 +558,125 @@ services:
     networks:
       - egov-network
     restart: "no"
+
+  # ===========================================================================
+  # PGR Services (Public Grievance Redressal)
+  # ===========================================================================
+  pgr-services:
+    image: egovio/pgr-services:v2.9.0-8b3aa24-4
+    container_name: pgr-services
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+      egov-idgen:
+        condition: service_healthy
+      egov-user:
+        condition: service_healthy
+      egov-workflow-v2:
+        condition: service_healthy
+      egov-localization:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      SPRING_FLYWAY_TABLE: pgr_services_schema
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_CONSUMER_GROUP_ID: egov-pgr-services
+      SERVER_PORT: 8080
+      EGOV_IDGEN_HOST: http://egov-idgen:8088/
+      EGOV_WORKFLOW_HOST: http://egov-workflow-v2:8109/
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
+      EGOV_LOCALIZATION_HOST: http://egov-localization:8096/
+      EGOV_USER_HOST: http://egov-user:8107/
+      EGOV_LOCATION_HOST: http://egov-location:8084/
+      EGOV_HRMS_HOST: http://egov-user:8107/
+      EGOV_URL_SHORTNER_HOST: http://egov-url-shortening:8080/
+      EGOV_UI_APP_HOST: http://localhost:18080
+      NOTIFICATION_SMS_ENABLED: 'false'
+      NOTIFICATION_EMAIL_ENABLED: 'false'
+      NEW_COMPLAINT_ENABLED: 'true'
+      REASSIGN_COMPLAINT_ENABLED: 'true'
+      REOPEN_COMPLAINT_ENABLED: 'true'
+      COMMENT_BY_EMPLOYEE_NOTIF_ENABLED: 'false'
+      NOTIFICATION_ALLOWED_ON_STATUS: 'open,assigned,rejected,resolved'
+      EGOV_USR_EVENTS_NOTIFICATION_ENABLED: 'true'
+      EGOV_USR_EVENTS_CREATE_TOPIC: persist-user-events-async
+      PGR_STATELEVEL_TENANTID: pg
+      STATE_LEVEL_TENANT_ID: pg
+      EGOV_STATE_LEVEL_TENANT_ID: pg
+      JAVA_OPTS: '-Xmx192m -Xms192m'
+      OTEL_TRACES_EXPORTER: none
+    ports:
+      - "18083:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/pgr-services/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - egov-network
+
+  # ===========================================================================
+  # DIGIT UI (React Frontend)
+  # ===========================================================================
+  digit-ui:
+    image: egovio/digit-ui:v0.0.1-e3046cc-87
+    container_name: digit-ui
+    ports:
+      - "18080:80"
+    networks:
+      - egov-network
+
+  # ===========================================================================
+  # Kong API Gateway (DB-less mode)
+  # ===========================================================================
+  kong:
+    image: kong:3.6
+    container_name: kong-gateway
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      KONG_ADMIN_GUI_URL: http://localhost:8002
+      KONG_STATUS_LISTEN: 0.0.0.0:8100
+    volumes:
+      - ./kong/kong.yml:/kong/kong.yml:ro
+    ports:
+      - "18000:8000"   # Proxy (HTTP)
+      - "18443:8443"   # Proxy (HTTPS)
+      - "18001:8001"   # Admin API
+      - "18002:8002"   # Kong Manager GUI
+      - "18100:8100"   # Status endpoint
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      egov-mdms-service:
+        condition: service_healthy
+      egov-user:
+        condition: service_healthy
+    networks:
+      - egov-network
 
 networks:
   egov-network:
