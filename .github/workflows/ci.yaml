@@ -89,7 +89,7 @@ jobs:
                 echo ""
                 echo "=== Checking why seeds haven't started ==="
                 for s in $SEEDS; do
-                  CONTAINER_JSON=$(docker compose ps --format json 2>/dev/null | jq -s "map(select(.Service == \"$s\")) | .[0]" 2>/dev/null)
+                  CONTAINER_JSON=$(docker compose ps -a --format json 2>/dev/null | jq -s "map(select(.Service == \"$s\")) | .[0]" 2>/dev/null)
                   if [ "$CONTAINER_JSON" = "null" ] || [ -z "$CONTAINER_JSON" ]; then
                     echo "[$s] NOT STARTED - checking dependencies..."
                     # Show the depends_on for this service
@@ -105,8 +105,8 @@ jobs:
                 exit 1
               fi
 
-              # Get container info
-              CONTAINER_JSON=$(docker compose ps --format json 2>/dev/null | jq -s "map(select(.Service == \"$seed\")) | .[0]" 2>/dev/null)
+              # Get container info - use -a to include EXITED containers!
+              CONTAINER_JSON=$(docker compose ps -a --format json 2>/dev/null | jq -s "map(select(.Service == \"$seed\")) | .[0]" 2>/dev/null)
 
               if [ "$CONTAINER_JSON" = "null" ] || [ -z "$CONTAINER_JSON" ]; then
                 echo "    [$seed] Waiting to start... (${WAIT_COUNT}s, total: ${ELAPSED}s)"
