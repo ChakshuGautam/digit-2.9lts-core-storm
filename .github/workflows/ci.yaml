@@ -28,6 +28,13 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/egovernments/Citizen-Complaint-Resolution-System.git ../Citizen-Complaint-Resolution-System
 
+      - name: Build digit-ui-dev image
+        run: |
+          docker build -t digit-ui-dev \
+            --build-arg WORK_DIR=. \
+            -f ../Citizen-Complaint-Resolution-System/frontend/micro-ui/web/docker/Dockerfile \
+            ../Citizen-Complaint-Resolution-System/frontend/micro-ui
+
       - name: Start services
         run: |
           docker compose up -d

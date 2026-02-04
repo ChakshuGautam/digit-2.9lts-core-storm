@@ -690,6 +690,8 @@ services:
 
   # ===========================================================================
   # DIGIT UI (React Frontend)
+  # Image built by Tilt from CCRS repo, or manually with:
+  # docker build -t digit-ui-dev -f ../Citizen-Complaint-Resolution-System/frontend/micro-ui/web/docker/Dockerfile ../Citizen-Complaint-Resolution-System/frontend/micro-ui
   # ===========================================================================
   digit-ui:
     image: digit-ui-dev
