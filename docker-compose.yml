@@ -192,13 +192,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
       SPRING_DATASOURCE_USERNAME: egov
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
-      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
-      SPRING_FLYWAY_USER: egov
-      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
-      SPRING_FLYWAY_ENABLED: 'true'
-      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
-      SPRING_FLYWAY_BASELINE_VERSION: '99999999999999'
-      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
+      # Flyway disabled - schema/data managed by idgen-seed.sql
+      SPRING_FLYWAY_ENABLED: 'false'
       EGOV_MDMS_HOST: http://egov-mdms-service:8094/
       MDMS_HOST: http://egov-mdms-service:8094/
       EGOV_MDMS_SEARCH_ENDPOINT: mdms-v2/v1/_search
