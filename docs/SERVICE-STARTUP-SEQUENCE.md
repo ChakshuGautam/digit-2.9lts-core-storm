@@ -228,3 +228,95 @@ If you see "Driver io.opentelemetry.instrumentation.jdbc.OpenTelemetryDriver cla
 ```yaml
 SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
 ```
+
+## Using Tilt for Local Development
+
+### Starting with Tilt
+```bash
+cd /root/code/digit-2.9lts-core-storm
+tilt up
+```
+
+Access Tilt UI at: http://localhost:10350
+
+### Tilt Resources
+
+| Label | Resources |
+|-------|-----------|
+| infrastructure | postgres, redis, redpanda, elasticsearch |
+| core-services | egov-mdms-service, egov-enc-service, egov-idgen, egov-user, egov-workflow-v2, egov-localization, egov-location, boundary-service, egov-accesscontrol, egov-persister |
+| gateway | kong |
+| pgr | pgr-services |
+| frontend | digit-ui |
+| seeds | db-seed, mdms-tenant-seed, mdms-security-seed, mdms-workflow-seed, localization-seed |
+| maintenance | nuke-db |
+
+### Tilt Navigation Buttons
+
+| Button | Description |
+|--------|-------------|
+| Health Check | Runs `scripts/health-check.sh` |
+| Smoke Tests | Runs `scripts/smoke-tests.sh` |
+| Test idgen | Tests ID generation via API call |
+| Kong Test | Tests Kong API gateway |
+| Nuke DB | Destroys all data and restarts infrastructure |
+| Re-seed MDMS | Re-runs the MDMS seed SQL |
+
+### Checking Resource Status
+```bash
+# List all resources with status
+tilt get uiresource -o json | jq -r '.items[] | "\(.metadata.name): \(.status.runtimeStatus // "n/a")"'
+
+# Trigger a specific resource
+tilt trigger <resource-name>
+
+# View logs for a resource
+tilt logs <resource-name>
+```
+
+### Using a Different Port
+If port 10350 is in use:
+```bash
+TILT_PORT=10351 tilt up
+```
+
+## CI/CD Pipeline
+
+### GitHub Actions Workflow
+
+The CI workflow (`.github/workflows/ci.yaml`) runs two jobs:
+
+1. **test** - Uses docker-compose directly
+   - Starts all services
+   - Waits for health checks
+   - Verifies seed data
+   - Runs health checks and smoke tests
+   - Tests idgen service
+
+2. **tilt-test** - Uses Tilt orchestration
+   - Validates Tiltfile
+   - Starts services via `tilt ci`
+   - Runs same health/smoke tests
+   - Tests idgen service
+
+### Running CI Tests Locally
+```bash
+# Run health checks
+./scripts/health-check.sh
+
+# Run smoke tests
+./scripts/smoke-tests.sh
+
+# Test idgen
+curl -X POST 'http://localhost:18088/egov-idgen/id/_generate' \
+  -H 'Content-Type: application/json' \
+  -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}'
+```
+
+### Seeds Order in CI
+Seeds run in dependency order:
+1. `mdms-tenant-seed` - Base tenant data
+2. `mdms-security-seed` - DataSecurity for enc-client
+3. `mdms-workflow-seed` - Workflow configuration
+4. `localization-seed` - UI messages
+5. `db-seed` - Final seed after all services ready

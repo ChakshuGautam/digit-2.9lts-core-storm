@@ -65,7 +65,7 @@ jobs:
           echo "Waiting for seed containers to finish (timeout: 10 minutes)..."
 
           # List of all seed containers
-          SEEDS="mdms-tenant-seed mdms-workflow-seed localization-seed db-seed"
+          SEEDS="mdms-tenant-seed mdms-security-seed mdms-workflow-seed localization-seed db-seed"
 
           # Overall timeout in seconds (10 minutes)
           TIMEOUT=600
@@ -206,6 +206,22 @@ jobs:
         run: |
           bash scripts/smoke-tests.sh http://localhost
 
+      - name: Test idgen service
+        run: |
+          echo "Testing idgen..."
+          RESPONSE=$(curl -s -X POST 'http://localhost:18088/egov-idgen/id/_generate' \
+            -H 'Content-Type: application/json' \
+            -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}')
+
+          if echo "$RESPONSE" | jq -e '.idResponses[0].id' > /dev/null 2>&1; then
+            ID=$(echo "$RESPONSE" | jq -r '.idResponses[0].id')
+            echo "idgen generated ID: $ID"
+          else
+            echo "idgen failed:"
+            echo "$RESPONSE" | jq .
+            exit 1
+          fi
+
       - name: Show service logs on failure
         if: failure()
         run: |
@@ -216,3 +232,103 @@ jobs:
         if: always()
         run: |
           docker compose down -v --remove-orphans
+
+  tilt-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          df -h
+
+      - name: Install Tilt
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+
+      - name: Validate Tiltfile
+        run: |
+          echo "Validating Tiltfile syntax..."
+          tilt docker-compose --validate ./docker-compose.yml || true
+          echo "Tiltfile validation complete"
+
+      - name: Start services with Tilt
+        run: |
+          # Start Tilt in CI mode (non-interactive)
+          tilt ci --timeout 20m &
+          TILT_PID=$!
+
+          # Wait for Tilt to start
+          sleep 30
+
+          # Monitor progress
+          timeout 600 bash -c '
+            while true; do
+              # Check if Tilt process is still running
+              if ! kill -0 $TILT_PID 2>/dev/null; then
+                echo "Tilt process exited"
+                break
+              fi
+
+              # Get resource status
+              UNHEALTHY=$(tilt get uiresource -o json 2>/dev/null | jq -r ".items[] | select(.status.runtimeStatus != \"ok\" and .status.runtimeStatus != \"not_applicable\") | .metadata.name" 2>/dev/null | wc -l)
+              TOTAL=$(tilt get uiresource -o json 2>/dev/null | jq -r ".items[].metadata.name" 2>/dev/null | wc -l)
+
+              echo "Tilt resources: $((TOTAL - UNHEALTHY))/$TOTAL healthy"
+
+              if [ "$UNHEALTHY" -eq 0 ] && [ "$TOTAL" -gt 10 ]; then
+                echo "All Tilt resources healthy!"
+                break
+              fi
+              sleep 15
+            done
+          ' || true
+        env:
+          TILT_PID: $TILT_PID
+
+      - name: Run health checks via Tilt
+        run: |
+          echo "Running health checks..."
+          bash scripts/health-check.sh http://localhost
+
+      - name: Run smoke tests via Tilt
+        run: |
+          echo "Running smoke tests..."
+          bash scripts/smoke-tests.sh http://localhost
+
+      - name: Test idgen service
+        run: |
+          echo "Testing idgen..."
+          RESPONSE=$(curl -s -X POST 'http://localhost:18088/egov-idgen/id/_generate' \
+            -H 'Content-Type: application/json' \
+            -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}')
+
+          if echo "$RESPONSE" | jq -e '.idResponses[0].id' > /dev/null 2>&1; then
+            ID=$(echo "$RESPONSE" | jq -r '.idResponses[0].id')
+            echo "idgen generated ID: $ID"
+          else
+            echo "idgen failed:"
+            echo "$RESPONSE" | jq .
+            exit 1
+          fi
+
+      - name: Show Tilt logs on failure
+        if: failure()
+        run: |
+          echo "=== Tilt Resource Status ==="
+          tilt get uiresource -o json 2>/dev/null | jq -r '.items[] | "\(.metadata.name): \(.status.runtimeStatus // "unknown")"' || true
+          echo ""
+          echo "=== Docker Compose Logs ==="
+          docker compose logs --tail=100 || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          tilt down || true
+          docker compose down -v --remove-orphans || true

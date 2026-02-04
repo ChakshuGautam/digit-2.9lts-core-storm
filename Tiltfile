@@ -147,6 +147,17 @@ cmd_button(
     text='Kong Test',
 )
 
+# Test idgen button
+cmd_button(
+    name='idgen-test',
+    argv=['sh', '-c', '''curl -s -X POST "http://localhost:18088/egov-idgen/id/_generate" \
+      -H "Content-Type: application/json" \
+      -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}' | jq .'''],
+    location=location.NAV,
+    icon_name='tag',
+    text='Test idgen',
+)
+
 # ==================== Port Summary ====================
 # Infrastructure:
 #   - Postgres:      15432
