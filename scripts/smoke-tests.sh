@@ -115,7 +115,7 @@ fi
 
 # Test 10: DIGIT UI accessible
 echo -n "10. DIGIT UI accessible... "
-response=$(curl -sS "$BASE_URL:18080/digit-ui/" 2>&1)
+response=$(curl -sS "$BASE_URL:18080/" 2>&1)
 if echo "$response" | grep -q "html\|<!DOCTYPE"; then
   echo -e "\033[32mPASS\033[0m"
   passed=$((passed + 1))

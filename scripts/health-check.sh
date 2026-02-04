@@ -23,7 +23,7 @@ services=(
   "AccessControl:18090:/access/health"
   "Persister:18091:/common-persist/actuator/health"
   "PGR-Services:18083:/pgr-services/health"
-  "DIGIT-UI:18080:/digit-ui/"
+  "DIGIT-UI:18080:/"
 )
 
 total=0
