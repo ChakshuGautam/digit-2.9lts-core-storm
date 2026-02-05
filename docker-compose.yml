@@ -819,11 +819,11 @@ services:
       # CCRS_PATH can be overridden via environment variable, defaults to sibling directory
       - ${CCRS_PATH:-../Citizen-Complaint-Resolution-System}/configs/assets/globalConfigsPGR.js:/var/web/digit-ui/globalConfigs.js:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/digit-ui/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 60s
     networks:
       - egov-network
 
