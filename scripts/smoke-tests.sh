@@ -112,13 +112,13 @@ else
   test_result fail
 fi
 
-# IDGen - Generate ID
+# IDGen - Generate ID using existing sequence (seq_eg_pgr_id)
 echo -n "15. IDGen generate... "
 response=$(curl -sS -X POST "$BASE_URL:18088/egov-idgen/id/_generate" \
   -H 'Content-Type: application/json' \
   -d '{
     "RequestInfo":{"apiId":"Rainmaker","ver":".01","action":"_generate","msgId":"test"},
-    "idRequests":[{"idName":"ci.test.id","tenantId":"pg.citya","format":"CI/TEST/[SEQ_CI_TEST]"}]
+    "idRequests":[{"idName":"smoke.test.id","tenantId":"pg.citya","format":"SMOKE/[cy:yyyy-MM-dd]/[seq_eg_pgr_id]"}]
   }' 2>&1)
 if echo "$response" | jq -e '.idResponses[0].id' > /dev/null 2>&1; then
   test_result pass
@@ -126,7 +126,7 @@ else
   test_result fail
 fi
 
-# Localization - Search
+# Localization - Search (table exists, may be empty)
 echo -n "16. Localization search... "
 response=$(curl -sS -X POST "$BASE_URL:18096/localization/messages/v1/_search?locale=en_IN&tenantId=pg&module=rainmaker-common" \
   -H 'Content-Type: application/json' \
