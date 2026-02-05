@@ -212,6 +212,7 @@ dc_resource('mdms-workflow-seed', labels=['seeds'], auto_init=True)
 dc_resource('mdms-security-seed', labels=['seeds'], auto_init=True)
 dc_resource('localization-seed', labels=['seeds'], auto_init=True)
 dc_resource('pgr-workflow-seed', labels=['seeds'], auto_init=True)
+dc_resource('user-seed', labels=['seeds'], auto_init=True)
 
 # ==================== Local Resources ====================
 

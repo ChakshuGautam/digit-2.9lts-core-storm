@@ -278,7 +278,7 @@ services:
     restart: "no"
 
   egov-user:
-    image: egovio/egov-user:v2_migration-cc51289
+    image: egovio/egov-user:master-fa75ba8
     container_name: egov-user
     depends_on:
       pgbouncer:
@@ -680,7 +680,6 @@ services:
         condition: service_healthy
     volumes:
       - ./db/seed.sql:/seed.sql:ro
-      - ./db/user-seed.sql:/user-seed.sql:ro
     entrypoint: >
       bash -c "
         echo 'Waiting for MDMS tables...';
@@ -690,10 +689,26 @@ services:
         done;
         echo 'Running seed.sql...';
         psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /seed.sql;
-        echo 'Running user-seed.sql...';
-        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /user-seed.sql;
         echo 'Done loading seed data'
       "
+    networks:
+      - egov-network
+    restart: "no"
+
+  # User seed via API (ensures proper password encryption via egov-enc-service)
+  user-seed:
+    image: curlimages/curl:latest
+    container_name: user-seed-container
+    depends_on:
+      egov-user:
+        condition: service_healthy
+      egov-enc-service:
+        condition: service_healthy
+    volumes:
+      - ./seeds/user-seed.sh:/user-seed.sh:ro
+    entrypoint: ["sh", "/user-seed.sh"]
+    environment:
+      EGOV_USER_HOST: http://egov-user:8107
     networks:
       - egov-network
     restart: "no"
@@ -781,9 +796,10 @@ services:
     ports:
       - "18080:80"
     volumes:
-      # Mount globalConfigs for runtime configuration (don't mount index.html - built image has it with bundle scripts)
-      # CCRS_PATH can be overridden via environment variable, defaults to sibling directory
-      - ${CCRS_PATH:-../Citizen-Complaint-Resolution-System}/configs/assets/globalConfigsPGR.js:/var/web/digit-ui/globalConfigs.js:ro
+      # Custom nginx config with sub_filter to inject globalConfigs.js at runtime
+      - ./nginx/digit-ui.conf:/etc/nginx/conf.d/default.conf:ro
+      # Mount globalConfigs.js for runtime configuration
+      - ./nginx/globalConfigs.js:/var/web/digit-ui/globalConfigs.js:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:80/digit-ui/ >/dev/null 2>&1 || exit 1"]
       interval: 30s
