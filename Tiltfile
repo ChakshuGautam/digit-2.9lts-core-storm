@@ -6,7 +6,7 @@ allow_k8s_contexts(k8s_context())
 
 # Load extensions
 load('ext://uibutton', 'cmd_button', 'location')
-load('ext://restart_process', 'docker_build_with_restart')
+# Note: restart_process extension removed - not compatible with docker-compose
 
 # ==================== Configuration ====================
 # Path to CCRS code (for live UI and PGR development)
@@ -67,16 +67,15 @@ Or run in CI mode without hot reload:
         labels=['pgr'],
     )
 
-    docker_build_with_restart(
+    docker_build(
         'pgr-services-dev',
         context=PGR_PATH + '/target/extracted',
         dockerfile_contents='''
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 COPY . /app
-ENTRYPOINT ["java", "-cp", ".:BOOT-INF/lib/*:BOOT-INF/classes", "org.egov.pgr.PgrApplication"]
+ENTRYPOINT ["java", "-cp", ".:BOOT-INF/lib/*:BOOT-INF/classes", "org.egov.pgr.PGRApp"]
 ''',
-        entrypoint=['java', '-cp', '.:BOOT-INF/lib/*:BOOT-INF/classes', 'org.egov.pgr.PgrApplication'],
         live_update=[
             sync(PGR_PATH + '/target/extracted/BOOT-INF/lib', '/app/BOOT-INF/lib'),
             sync(PGR_PATH + '/target/extracted/BOOT-INF/classes', '/app/BOOT-INF/classes'),
