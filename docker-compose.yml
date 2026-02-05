@@ -417,43 +417,6 @@ services:
     networks:
     - egov-network
 
-  egov-location:
-    image: egovio/egov-location:v2.9.2-4a60f20
-    container_name: egov-location
-    depends_on:
-      pgbouncer:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
-      SPRING_DATASOURCE_USERNAME: egov
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
-      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "5"
-      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
-      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
-      SPRING_FLYWAY_USER: egov
-      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
-      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
-      SPRING_FLYWAY_VALIDATE_ON_MIGRATE: 'false'
-      SPRING_FLYWAY_ENABLED: 'true'
-      SPRING_FLYWAY_TABLE: location_schema_version
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
-      SERVER_PORT: 8084
-      EGOV_MDMS_HOST: http://egov-mdms-service:8094/
-      OTEL_TRACES_EXPORTER: none
-      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m
-    ports:
-    - 18084:8084
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/egov-location/health >/dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    networks:
-    - egov-network
-
   boundary-service:
     image: egovio/boundary-service:v2.9.2-4a60f20
     container_name: boundary-service
@@ -778,7 +741,7 @@ services:
       EGOV_MDMS_HOST: http://egov-mdms-service:8094/
       EGOV_LOCALIZATION_HOST: http://egov-localization:8096/
       EGOV_USER_HOST: http://egov-user:8107/
-      EGOV_LOCATION_HOST: http://egov-location:8084/
+      EGOV_LOCATION_HOST: http://boundary-service:8081/
       EGOV_HRMS_HOST: http://egov-user:8107/
       EGOV_URL_SHORTNER_HOST: http://egov-url-shortening:8080/
       EGOV_UI_APP_HOST: http://localhost:18080

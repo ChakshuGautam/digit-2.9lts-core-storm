@@ -1,6 +1,9 @@
 # DIGIT Core Services - Tiltfile
 # Run with: tilt up
 
+# Allow any k8s context since we're using docker-compose, not k8s
+allow_k8s_contexts(k8s_context())
+
 # Load extensions
 load('ext://uibutton', 'cmd_button', 'location')
 load('ext://restart_process', 'docker_build_with_restart')
@@ -37,7 +40,7 @@ else:
     # Local Dev Mode: Compile Java locally, then sync to container for fast hot reload
     # Requires: mvn installed locally
     # Check if Maven is available
-    maven_check = local('which mvn || echo "not_found"', quiet=True)
+    maven_check = str(local('which mvn || echo "not_found"', quiet=True))
     if 'not_found' in maven_check:
         fail('''
 Maven not found! For local development with hot reload, install Maven:
@@ -50,7 +53,7 @@ Or run in CI mode without hot reload:
 
     # Initial Maven build if target/extracted doesn't exist yet
     # This ensures the docker build context exists on first run
-    pgr_target_exists = local('test -d "' + PGR_PATH + '/target/extracted" && echo "exists" || echo "missing"', quiet=True)
+    pgr_target_exists = str(local('test -d "' + PGR_PATH + '/target/extracted" && echo "exists" || echo "missing"', quiet=True))
     if 'missing' in pgr_target_exists:
         print('PGR target not found, running initial Maven build...')
         local('cd ' + PGR_PATH + ' && mvn package -DskipTests -q && unzip -o target/pgr-services-*.jar -d target/extracted')
@@ -91,7 +94,7 @@ if CI_MODE:
 else:
     # Local Dev Mode: Build with live sync for hot reload
     # Check if yarn is available for UI watching
-    yarn_check = local('which yarn || echo "not_found"', quiet=True)
+    yarn_check = str(local('which yarn || echo "not_found"', quiet=True))
     if 'not_found' not in yarn_check:
         # UI watcher - recompiles on source changes
         # This runs webpack in watch mode for hot reload
@@ -154,11 +157,6 @@ dc_resource('egov-workflow-v2', labels=['core-services'],
 dc_resource('egov-localization', labels=['core-services'],
     links=[
         link('http://localhost:18096/localization/actuator/health', 'Health'),
-    ])
-
-dc_resource('egov-location', labels=['core-services'],
-    links=[
-        link('http://localhost:18084/egov-location/health', 'Health'),
     ])
 
 dc_resource('boundary-service', labels=['core-services'],

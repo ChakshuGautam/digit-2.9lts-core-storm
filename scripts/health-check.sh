@@ -19,7 +19,6 @@ services=(
   "User:18107:/user/health"
   "Workflow:18109:/egov-workflow-v2/health"
   "Localization:18096:/localization/actuator/health"
-  "Location:18084:/egov-location/health"
   "Boundary-v2:18081:/boundary-service/actuator/health"
   "AccessControl:18090:/access/health"
   "Persister:18091:/common-persist/actuator/health"
