@@ -87,7 +87,7 @@ if CI_MODE:
     digit_ui_exists = str(local('docker images -q digit-ui-dev:latest 2>/dev/null || echo "missing"', quiet=True)).strip()
     if digit_ui_exists == '' or 'missing' in digit_ui_exists:
         print('digit-ui-dev not found, pulling from Docker Hub...')
-        local('docker pull egovio/digit-ui:unified-dev-db498d4 && docker tag egovio/digit-ui:unified-dev-db498d4 digit-ui-dev:latest')
+        local('docker pull egovio/digit-ui:master-e58961a && docker tag egovio/digit-ui:master-e58961a digit-ui-dev:latest')
 else:
     # Local Dev Mode: Build with live sync for hot reload
     # Check if yarn is available for UI watching
