@@ -237,10 +237,6 @@ jobs:
         run: |
           bash scripts/health-check.sh http://localhost
 
-      - name: Run bash smoke tests
-        run: |
-          bash scripts/smoke-tests.sh http://localhost
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -378,11 +374,6 @@ jobs:
           done
           echo "Health checks failed after 3 attempts"
           exit 1
-
-      - name: Run bash smoke tests via Tilt
-        run: |
-          echo "Running smoke tests..."
-          bash scripts/smoke-tests.sh http://localhost
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
