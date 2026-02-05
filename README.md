@@ -1,149 +1,309 @@
-# DIGIT Core Services - Docker Compose
+# DIGIT Core Services - Local Development Stack
 
-Run a minimal DIGIT core stack locally with Postgres, Redis, Kafka, Elasticsearch, and the core platform services. This repo includes seed data for the tenant "pg" (short for playground) and a Postman collection for quick validation.
-
-## What is Included
-
-Infrastructure:
-- Postgres 16
-- Redis 7
-- Kafka (Bitnami, KRaft)
-- Elasticsearch 8
-
-Core services:
-- MDMS v2
-- ENC service
-- IDGEN
-- User service
-- Workflow v2
-- Localization
-- Location
-- Access Control
-- Persister
-
-Seed jobs (one-shot):
-- Tenant MDMS seed
-- Workflow MDMS seed
-- Localization seed
-- Core DB seed
-
-## Service Ports
-
-Ports are mapped from the docker-compose file.
-
-| Service | Container | Port(s) |
-| --- | --- | --- |
-| Postgres | `docker-postgres` | `5432` |
-| Redis | `sdcrs-redis` | `6379` |
-| Kafka | `sdcrs-kafka` | `9092` |
-| Elasticsearch | `sdcrs-elasticsearch` | `9200` |
-| ENC service | `egov-enc-service` | `1234` |
-| MDMS v2 | `egov-mdms-service` | `8094` |
-| IDGEN | `egov-idgen` | `8088` |
-| User service | `egov-user` | `8107` |
-| Workflow v2 | `egov-workflow-v2` | `8109` |
-| Localization | `egov-localization` | `8096` |
-| Location | `egov-location` | `8084` |
-| Access Control | `egov-accesscontrol` | `8090` |
-| Persister | `egov-persister` | `8091` |
-
-## Resource Estimates (All Services Running)
-
-Approximate idle/low-load memory usage per service. Actual usage varies by workload and data volume.
-
-| Service | Estimated RAM |
-| --- | --- |
-| Postgres | 400–800 MB |
-| Redis | 50–150 MB |
-| Kafka (KRaft) | 800–1400 MB |
-| Elasticsearch | 650–900 MB |
-| egov-enc-service | 200–400 MB |
-| egov-mdms-service | 300–500 MB |
-| egov-idgen | 250–450 MB |
-| egov-user | 400–700 MB |
-| egov-workflow-v2 | 350–600 MB |
-| egov-localization | 300–500 MB |
-| egov-location | 300–500 MB |
-| egov-accesscontrol | 250–450 MB |
-| egov-persister | 200–400 MB |
-
-Overall estimate for this stack (idle/low load):
-- Services total: ~5.5–8.5 GB RAM
-- Plus OS + Docker overhead: ~2–4 GB
-- Practical minimum: 10–12 GB RAM
-- Comfortable: 16 GB RAM
-- CPU: 4–6 cores recommended (2–3 cores will be sluggish)
-
-## Prerequisites
-
-- Docker Desktop (or Docker Engine)
-- Docker Compose v2
+Run a complete DIGIT development environment locally with all core services, PGR module, and the DIGIT UI.
 
 ## Quick Start
 
-Start the stack:
 ```bash
+# 1. Clone this repo
+git clone <this-repo> digit-core
+cd digit-core
+
+# 2. Clone CCRS repo (UI + PGR configs) as sibling directory
+git clone https://github.com/egovernments/Citizen-Complaint-Resolution-System.git ../Citizen-Complaint-Resolution-System
+
+# 3. Start with Tilt (recommended)
+tilt up
+
+# 4. Access DIGIT UI
+open http://localhost:18000/digit-ui/
+```
+
+## Prerequisites
+
+- Docker Desktop (or Docker Engine + Compose v2)
+- [Tilt](https://docs.tilt.dev/install.html) (recommended for development)
+- 8+ GB RAM available for Docker
+
+**For hot reload development (optional):**
+- Maven 3.9+ (for PGR Java hot reload)
+- Node.js 14+ and Yarn (for UI hot reload)
+
+## What's Included
+
+### Infrastructure
+| Service | Port | Description |
+|---------|------|-------------|
+| Postgres | 15432 | Database |
+| Redis | 16379 | Cache |
+| Redpanda | 19092 | Kafka-compatible messaging |
+| Elasticsearch | 19200 | Search & indexing |
+
+### Core Services
+| Service | Port | Health Check |
+|---------|------|--------------|
+| MDMS v2 | 18094 | `/mdms-v2/health` |
+| User | 18107 | `/user/health` |
+| Workflow v2 | 18109 | `/egov-workflow-v2/health` |
+| Localization | 18096 | `/localization/actuator/health` |
+| Location | 18084 | `/egov-location/health` |
+| Boundary v2 | 18081 | `/boundary-service/actuator/health` |
+| Access Control | 18090 | `/access/health` |
+| IDGEN | 18088 | `/egov-idgen/health` |
+| ENC | 11234 | `/egov-enc-service/actuator/health` |
+| Persister | 18091 | `/common-persist/actuator/health` |
+
+### Application
+| Service | Port | URL |
+|---------|------|-----|
+| Kong Gateway | 18000 | Main entry point |
+| DIGIT UI | 18080 | Static assets only |
+| PGR Services | 18083 | `/pgr-services/health` |
+
+## Development with Tilt
+
+Tilt provides a better development experience with:
+- Dashboard at http://localhost:10350
+- Live logs for all services
+- One-click restarts
+- Health status monitoring
+
+```bash
+# Start everything
+tilt up
+
+# Stop everything
+tilt down
+```
+
+### Tilt Dashboard Features
+- **Health Check** button - runs all health checks
+- **Smoke Tests** button - validates API functionality
+- **Nuke DB** button - reset database (destructive)
+- **Start Jupyter** - launch Jupyter Lab for data exploration
+- **Start Gatus** - launch health monitoring dashboard
+
+## Alternative: Docker Compose Only
+
+```bash
+# Start
+docker compose up -d
+
+# Watch logs
+docker compose logs -f
+
+# Stop
+docker compose down
+
+# Reset (remove volumes)
+docker compose down -v
+```
+
+## Hot Reload Development
+
+### PGR Services (Java)
+
+Requires Maven installed locally.
+
+```bash
+# Start Tilt - it will compile PGR with Maven
+tilt up
+
+# Make changes to Java code
+vim ../Citizen-Complaint-Resolution-System/backend/pgr-services/src/main/java/...
+
+# Tilt detects changes, recompiles, and syncs to container automatically
+```
+
+The `pgr-compile` resource in Tilt runs `mvn package` when source files change.
+
+### DIGIT UI (React)
+
+Requires Node.js and Yarn installed locally.
+
+```bash
+# Start Tilt
+tilt up
+
+# In Tilt UI (http://localhost:10350), enable the "ui-watch" resource
+# Or run webpack watch manually:
+cd ../Citizen-Complaint-Resolution-System/frontend/micro-ui/web
+yarn install
+yarn build:webpack --watch
+
+# Make changes to React code - webpack rebuilds, Tilt syncs to container
+```
+
+### CI Mode (No Hot Reload)
+
+If you don't have Maven/Node installed, run in CI mode:
+
+```bash
+TILT_CI=1 tilt up
+```
+
+This builds images using Docker (slower initial build, no hot reload).
+
+### Configuration
+- `globalConfigs.js` is mounted from `CCRS/configs/assets/globalConfigsPGR.js`
+- Edit this file to change tenant ID, API keys, feature flags
+
+## End-to-End Testing
+
+### Test Credentials
+
+A default admin user is created by the `user-schema-seed` service:
+
+| Username | Password | Type | Tenant |
+|----------|----------|------|--------|
+| `ADMIN` | `eGov@123` | EMPLOYEE | pg |
+
+**Note:** The admin user has roles: SUPERUSER, EMPLOYEE (pg), PGR-ADMIN, GRO (pg.citya)
+
+### Quick Verification
+
+```bash
+# 1. Check all services are healthy
+./scripts/health-check.sh
+
+# 2. Run smoke tests
+./scripts/smoke-tests.sh
+
+# 3. Test ID generation
+curl -X POST "http://localhost:18088/egov-idgen/id/_generate" \
+  -H "Content-Type: application/json" \
+  -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}'
+```
+
+### Manual UI Test Flow
+
+1. Open http://localhost:18000/digit-ui/
+2. Select language → Select city (City A)
+3. Login as Employee: `ADMIN@pg` / `eGov@123`
+4. Navigate to Complaints → Create new complaint
+5. Fill form and submit
+6. Verify complaint appears in inbox
+
+### API Test Flow
+
+```bash
+# 1. Get auth token
+TOKEN=$(curl -s -X POST "http://localhost:18000/user/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Authorization: Basic ZWdvdi11c2VyLWNsaWVudDo=" \
+  -d "username=ADMIN@pg&password=eGov@123&tenantId=pg&grant_type=password&scope=read&userType=EMPLOYEE" | jq -r '.access_token')
+
+# 2. Create a complaint
+curl -X POST "http://localhost:18000/pgr-services/v2/request/_create" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "RequestInfo": {"apiId": "Rainmaker", "authToken": "'$TOKEN'"},
+    "service": {
+      "tenantId": "pg.citya",
+      "serviceCode": "StreetLightNotWorking",
+      "description": "Test complaint from API",
+      "source": "web",
+      "address": {"city": "pg.citya", "locality": {"code": "SL001"}}
+    }
+  }'
+
+# 3. Search complaints
+curl -X POST "http://localhost:18000/pgr-services/v2/request/_search" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"RequestInfo": {"apiId": "Rainmaker", "authToken": "'$TOKEN'"}, "tenantId": "pg.citya"}'
+```
+
+## API Access
+
+All APIs are available through Kong gateway at `http://localhost:18000`:
+
+```bash
+# MDMS search
+curl -X POST "http://localhost:18000/mdms-v2/v1/_search" \
+  -H "Content-Type: application/json" \
+  -d '{"MdmsCriteria":{"tenantId":"pg","moduleDetails":[{"moduleName":"tenant","masterDetails":[{"name":"tenants"}]}]},"RequestInfo":{"apiId":"Rainmaker"}}'
+
+# User login (after creating user - see Test Credentials section)
+curl -X POST "http://localhost:18000/user/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Authorization: Basic ZWdvdi11c2VyLWNsaWVudDo=" \
+  -d "username=ADMIN&password=eGov@123&tenantId=pg&grant_type=password&scope=read&userType=EMPLOYEE"
+```
+
+## Database Access
+
+```bash
+# Connect to Postgres
+docker exec -it docker-postgres psql -U egov -d egov
+
+# Common queries
+\dt                          # List tables
+SELECT * FROM eg_user LIMIT 5;
+```
+
+## Troubleshooting
+
+### Services not starting
+```bash
+# Check service logs
+docker compose logs <service-name>
+
+# Restart a specific service
+docker compose restart <service-name>
+```
+
+### UI showing blank page
+- Check browser console for errors
+- Verify globalConfigs.js is loaded: `curl http://localhost:18000/digit-ui/globalConfigs.js`
+- Ensure CCRS repo is cloned correctly
+
+### API returning errors
+- Check Kong is running: `curl http://localhost:18000/`
+- Check backend service health: `curl http://localhost:18094/mdms-v2/health`
+
+### Reset everything
+```bash
+docker compose down -v
 docker compose up -d
 ```
 
-Watch startup logs:
-```bash
-docker compose logs -f
+## Resource Usage
+
+Optimized for ~4GB RAM usage:
+
+| Component | Memory |
+|-----------|--------|
+| Infrastructure (Postgres, Redis, ES, Redpanda) | ~1.5 GB |
+| Core Services (Java) | ~2 GB |
+| Kong + UI | ~0.3 GB |
+| **Total** | **~3.8 GB** |
+
+## Project Structure
+
 ```
+digit-core/
+├── docker-compose.yml    # Service definitions
+├── Tiltfile              # Tilt configuration
+├── docker/
+│   └── pgr-services/     # PGR Dockerfile for CI builds
+├── kong/
+│   └── kong.yml          # API gateway routes
+├── db/
+│   ├── seed.sql          # Database seed data
+│   ├── tenant-seed.sql   # Tenant master data
+│   └── mdms-*.sql        # MDMS seed data
+├── configs/
+│   └── persister/        # Persister YAML configs
+├── scripts/
+│   ├── health-check.sh   # Service health verification
+│   └── smoke-tests.sh    # API smoke tests
+└── gatus/
+    └── config.yaml       # Health dashboard config
 
-Stop everything:
-```bash
-docker compose down
+../Citizen-Complaint-Resolution-System/   # CCRS repo (sibling)
+├── frontend/micro-ui/    # DIGIT UI source
+├── backend/pgr-services/ # PGR Java source
+└── configs/assets/       # Runtime configs
 ```
-
-## Validation
-
-Health checks (examples):
-```bash
-curl -sS http://localhost:8094/mdms-v2/health
-curl -sS http://localhost:8107/user/health
-curl -sS http://localhost:8096/localization/actuator/health
-```
-
-Localization search (v1, seeded data):
-```bash
-curl -sS -X POST "http://localhost:8096/localization/messages/v1/_search?locale=en_IN&module=rainmaker-workbench&tenantId=pg" \
-  -H "Content-Type: application/json" \
-  -d '{"RequestInfo":{"apiId":"Rainmaker","ver":".01","ts":""}}'
-```
-
-If localization returns empty, clear Redis cache:
-```bash
-curl -sS -X POST "http://localhost:8096/localization/messages/cache-bust"
-```
-
-### Postman collection:
-
-Import the Postman collection and run all to know the status of containers:
-
-- `postman/digit-core-validation.postman_collection.json`
-
-## Postgres Access
-
-Connect to the DB container:
-```bash
-docker exec -it docker-postgres psql -U egov -d egov
-```
-
-## Notes
-
-- MDMS v2 (master data stored in DB) is used in the stack.
-- Seed containers run once and exit; check status with `docker compose ps -a`.
-- The localization seed targets the `message` table used by the current localization service schema.
-
-## Known Issues
-
-- Localization contains sample data for a trade license module
-- Location (boundary-v2) is failing.
-- Gateway, Indexer & other services are not part of the docker compose for now.
-
-## Enhancements
-- Set up boundary v2 and add seed data
-- Add PGR service and UI 
-- Add indexer to test out the data pipeline to ES
->>>>>>> 2cc64fa (Initial cut of docker compose)
