@@ -217,10 +217,12 @@ services:
       OTEL_TRACES_EXPORTER: none
       JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m
     healthcheck:
+      # Check Spring Boot health - Flyway runs before app context starts, so health implies migrations done
       test: ["CMD-SHELL", "wget -qO- http://localhost:8094/mdms-v2/health >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 15
+      start_period: 45s
     deploy:
       resources:
         limits:
