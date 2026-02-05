@@ -717,6 +717,7 @@ services:
         condition: service_healthy
     volumes:
       - ./db/seed.sql:/seed.sql:ro
+      - ./db/user-seed.sql:/user-seed.sql:ro
     entrypoint: >
       bash -c "
         echo 'Waiting for MDMS tables...';
@@ -725,7 +726,9 @@ services:
           sleep 2;
         done;
         echo 'Running seed.sql...';
-        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /seed.sql
+        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /seed.sql;
+        echo 'Running user-seed.sql...';
+        psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -f /user-seed.sql;
         echo 'Done loading seed data'
       "
     networks:
