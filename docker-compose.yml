@@ -91,7 +91,7 @@ services:
       - --smp
       - '1'
       - --memory
-      - 512M
+      - 256M
       - --overprovisioned
       - --node-id
       - '0'
@@ -114,7 +114,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 300M
           cpus: '0.5'
     networks:
       - egov-network
