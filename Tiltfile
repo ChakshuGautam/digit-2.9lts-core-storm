@@ -11,7 +11,7 @@ CCRS_PATH = os.getenv('CCRS_PATH', '../Citizen-Complaint-Resolution-System')
 CCRS_REPO_URL = 'https://github.com/egovernments/Citizen-Complaint-Resolution-System.git'
 
 # Auto-clone CCRS repo if it doesn't exist
-ccrs_exists = local('test -d "' + CCRS_PATH + '" && echo "exists" || echo "missing"', quiet=True)
+ccrs_exists = str(local('test -d "' + CCRS_PATH + '" && echo "exists" || echo "missing"', quiet=True))
 if 'missing' in ccrs_exists:
     print('CCRS repo not found at ' + CCRS_PATH + ', cloning...')
     local('git clone --depth 1 ' + CCRS_REPO_URL + ' ' + CCRS_PATH)
