@@ -102,6 +102,8 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.10.3
     container_name: digit-elasticsearch
+    profiles:
+      - tools  # Disabled by default - enable with: docker compose --profile tools up elasticsearch
     environment:
     - discovery.type=single-node
     - xpack.security.enabled=false
@@ -390,6 +392,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
       db-migrations:
         condition: service_completed_successfully
     environment:
@@ -472,6 +476,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
       SPRING_DATASOURCE_USERNAME: egov
@@ -508,6 +514,8 @@ services:
       pgbouncer:
         condition: service_healthy
       redpanda:
+        condition: service_healthy
+      egov-mdms-service:
         condition: service_healthy
     environment:
       SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov

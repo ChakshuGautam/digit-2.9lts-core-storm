@@ -126,7 +126,8 @@ dc_resource('postgres-db', labels=['infrastructure'])
 dc_resource('pgbouncer', labels=['infrastructure'])
 dc_resource('redis', labels=['infrastructure'])
 dc_resource('redpanda', labels=['infrastructure'])
-dc_resource('elasticsearch', labels=['infrastructure'])
+# Elasticsearch disabled by default (uses profiles: tools in docker-compose)
+# dc_resource('elasticsearch', labels=['infrastructure'])
 dc_resource('gatus', labels=['infrastructure'], auto_init=True,
     links=[
         link('http://localhost:18889', 'Health Dashboard'),
@@ -219,7 +220,7 @@ dc_resource('user-seed', labels=['seeds'], auto_init=True)
 # Database reset - manually triggered only
 local_resource(
     'nuke-db',
-    cmd='docker compose down -v && docker compose up -d postgres redis redpanda elasticsearch',
+    cmd='docker compose down -v && docker compose up -d postgres redis redpanda',
     auto_init=False,
     labels=['maintenance'],
 )
@@ -229,7 +230,7 @@ local_resource(
 # Nuke Database button - removes all data and restarts infrastructure
 cmd_button(
     name='nuke-db-btn',
-    argv=['sh', '-c', 'docker compose down -v && docker compose up -d postgres redis redpanda elasticsearch'],
+    argv=['sh', '-c', 'docker compose down -v && docker compose up -d postgres redis redpanda'],
     location=location.NAV,
     icon_name='delete_forever',
     text='Nuke DB',
