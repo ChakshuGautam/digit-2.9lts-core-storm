@@ -119,6 +119,8 @@ else:
     )
 
 # Load docker-compose configuration
+# Note: wait=True blocks until ALL containers are healthy, which is too slow
+# Instead, rely on docker-compose depends_on with service_healthy conditions
 docker_compose('./docker-compose.yml')
 
 # ==================== Infrastructure ====================
@@ -145,13 +147,13 @@ dc_resource('egov-mdms-service', labels=['core-services'],
     ])
 
 dc_resource('egov-enc-service', labels=['core-services'],
-    resource_deps=['mdms-tenant-seed'],
+    resource_deps=['egov-mdms-service', 'mdms-tenant-seed'],
     links=[
         link('http://localhost:11234/egov-enc-service/actuator/health', 'Health'),
     ])
 
 dc_resource('egov-idgen', labels=['core-services'],
-    resource_deps=['egov-user', 'egov-mdms-service', 'db-migrations'],
+    resource_deps=['egov-mdms-service', 'db-migrations'],
     links=[
         link('http://localhost:18088/egov-idgen/health', 'Health'),
     ])
@@ -169,7 +171,7 @@ dc_resource('egov-workflow-v2', labels=['core-services'],
     ])
 
 dc_resource('egov-localization', labels=['core-services'],
-    resource_deps=['db-migrations'],
+    resource_deps=['egov-mdms-service', 'db-migrations'],
     links=[
         link('http://localhost:18096/localization/actuator/health', 'Health'),
     ])
@@ -213,6 +215,7 @@ dc_resource('jupyter', labels=['pgr'], auto_init=True,
     ])
 
 dc_resource('digit-ui', labels=['frontend'],
+    resource_deps=['kong'],  # Wait for Kong gateway to be ready
     links=[
         link('http://localhost:18000/digit-ui/', 'UI via Kong'),
     ])
@@ -241,6 +244,38 @@ dc_resource('pgr-workflow-seed', labels=['seeds'], auto_init=True,
 )
 dc_resource('user-seed', labels=['seeds'], auto_init=True,
     resource_deps=['egov-user', 'egov-enc-service', 'db-seed'],
+)
+dc_resource('mdms-bndry-mgmnt-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['mdms-tenant-seed'],
+)
+
+# ==================== HRMS ====================
+dc_resource('hrms-prereq-gate', labels=['hrms'], auto_init=True,
+    resource_deps=['egov-user', 'user-seed'],
+)
+dc_resource('egov-hrms', labels=['hrms'],
+    resource_deps=['hrms-prereq-gate', 'egov-mdms-service', 'egov-idgen', 'egov-user'],
+    links=[
+        link('http://localhost:18092/egov-hrms/employees/_search', 'Health'),
+    ])
+
+# ==================== Additional Services ====================
+dc_resource('minio', labels=['infrastructure'])
+dc_resource('minio-init', labels=['infrastructure'],
+    resource_deps=['minio'],
+)
+dc_resource('egov-filestore', labels=['core-services'],
+    resource_deps=['minio-init', 'egov-mdms-service'],
+    links=[
+        link('http://localhost:18083/filestore/health', 'Health'),
+    ])
+dc_resource('egov-bndry-mgmnt', labels=['core-services'],
+    resource_deps=['boundary-service', 'egov-filestore', 'mdms-bndry-mgmnt-seed'],
+    links=[
+        link('http://localhost:18081/boundary-management/actuator/health', 'Health'),
+    ])
+dc_resource('default-data-handler', labels=['core-services'],
+    resource_deps=['mdms-backend'],
 )
 
 # ==================== Local Resources ====================
