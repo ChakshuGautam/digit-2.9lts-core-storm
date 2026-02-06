@@ -120,12 +120,34 @@ SELECT * FROM eg_user LIMIT 5;
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose v2)
-- [Tilt](https://docs.tilt.dev/install.html) (recommended for development)
+- **Patched Tilt** (see below) - required for proper health check handling
 - 8+ GB RAM available for Docker
 
 **For hot reload development (optional):**
 - Maven 3.9+ (for PGR Java hot reload)
 - Node.js 14+ and Yarn (for UI hot reload)
+
+### Installing Patched Tilt
+
+This project requires a patched version of Tilt that properly waits for Docker Compose health checks before marking services as ready. The upstream Tilt has a bug where it considers containers "ready" as soon as they're "running", ignoring health check status.
+
+```bash
+# Linux amd64
+curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck/tilt-linux-amd64.gz | gunzip > /usr/local/bin/tilt
+chmod +x /usr/local/bin/tilt
+
+# Verify installation
+tilt version
+# Should show: v0.36.3-dev
+```
+
+**Why is this needed?**
+- Services like HRMS require other services (egov-user, egov-enc-service) to be fully healthy before starting
+- Docker Compose `depends_on: condition: service_healthy` handles this correctly
+- But Tilt bypasses this by using `--no-deps` and only checking if containers are "running"
+- The patched Tilt checks the `HealthStatus` field and waits for "healthy" before proceeding
+
+**PR to upstream:** https://github.com/tilt-dev/tilt/pull/6682
 
 ## What's Included
 
