@@ -387,6 +387,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      egov-idgen:
+        condition: service_healthy
       mdms-workflow-seed:
         condition: service_completed_successfully
     environment:
@@ -622,7 +624,7 @@ services:
     entrypoint: >
       bash -c "
         echo 'Waiting for MDMS tables to be created by Flyway...';
-        until psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -c 'SELECT 1 FROM eg_mdms_schema_definition LIMIT 1' >/dev/null 2>&1; do
+        until [ \"$(psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -tAc \"SELECT to_regclass('public.eg_mdms_schema_definition') IS NOT NULL\" 2>/dev/null)\" = \"t\" ]; do
           echo 'MDMS tables not ready, waiting...';
           sleep 2;
         done;
@@ -648,7 +650,7 @@ services:
     entrypoint: >
       bash -c "
         echo 'Waiting for MDMS tables...';
-        until psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -c 'SELECT 1 FROM eg_mdms_schema_definition LIMIT 1' >/dev/null 2>&1; do
+        until [ \"$(psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -tAc \"SELECT to_regclass('public.eg_mdms_schema_definition') IS NOT NULL\" 2>/dev/null)\" = \"t\" ]; do
           echo 'MDMS tables not ready, waiting...';
           sleep 2;
         done;
@@ -674,7 +676,7 @@ services:
     entrypoint: >
       bash -c "
         echo 'Waiting for MDMS tables...';
-        until psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -c 'SELECT 1 FROM eg_mdms_schema_definition LIMIT 1' >/dev/null 2>&1; do
+        until [ \"$(psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -tAc \"SELECT to_regclass('public.eg_mdms_schema_definition') IS NOT NULL\" 2>/dev/null)\" = \"t\" ]; do
           echo 'MDMS tables not ready, waiting...';
           sleep 2;
         done;
@@ -774,7 +776,7 @@ services:
     entrypoint: >
       bash -c "
         echo 'Waiting for MDMS tables...';
-        until psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -c 'SELECT 1 FROM eg_mdms_schema_definition LIMIT 1' >/dev/null 2>&1; do
+        until [ \"$(psql postgresql://egov:${POSTGRES_PASSWORD:-egov123}@postgres:5432/egov -tAc \"SELECT to_regclass('public.eg_mdms_schema_definition') IS NOT NULL\" 2>/dev/null)\" = \"t\" ]; do
           echo 'MDMS tables not ready, waiting...';
           sleep 2;
         done;
