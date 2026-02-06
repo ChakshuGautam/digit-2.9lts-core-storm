@@ -213,6 +213,7 @@ services:
       SPRING_FLYWAY_ENABLED: 'true'
       SPRING_FLYWAY_TABLE: mdms_schema_version
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       SERVER_PORT: 8094
       OTEL_TRACES_EXPORTER: none
       JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m
