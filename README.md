@@ -132,13 +132,24 @@ SELECT * FROM eg_user LIMIT 5;
 This project requires a patched version of Tilt that properly waits for Docker Compose health checks before marking services as ready. The upstream Tilt has a bug where it considers containers "ready" as soon as they're "running", ignoring health check status.
 
 ```bash
+# macOS Apple Silicon (M1/M2/M3)
+curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck-2/tilt-darwin-arm64.tar.gz | tar xz
+sudo mv tilt /usr/local/bin/tilt
+
+# macOS Intel
+curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck-2/tilt-darwin-amd64.tar.gz | tar xz
+sudo mv tilt /usr/local/bin/tilt
+
 # Linux amd64
-curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck/tilt-linux-amd64.gz | gunzip > /usr/local/bin/tilt
-chmod +x /usr/local/bin/tilt
+curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck-2/tilt-linux-amd64.tar.gz | tar xz
+sudo mv tilt /usr/local/bin/tilt
+
+# Linux arm64
+curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck-2/tilt-linux-arm64.tar.gz | tar xz
+sudo mv tilt /usr/local/bin/tilt
 
 # Verify installation
 tilt version
-# Should show: v0.36.3-dev
 ```
 
 **Why is this needed?**
