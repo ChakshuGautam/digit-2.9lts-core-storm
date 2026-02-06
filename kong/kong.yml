@@ -278,6 +278,48 @@ services:
     config:
       replace:
         uri: /pgr-services/health
+- name: filestore-service
+  url: http://egov-filestore:8083
+  tags:
+  - core
+  routes:
+  - name: filestore-route
+    paths:
+    - /filestore
+    strip_path: false
+  plugins:
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+- name: hrms-service
+  url: http://egov-hrms:8092
+  tags:
+  - core
+  routes:
+  - name: hrms-route
+    paths:
+    - /egov-hrms
+    strip_path: false
+  plugins:
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+- name: bndry-mgmnt-service
+  url: http://egov-bndry-mgmnt:8086
+  tags:
+  - core
+  routes:
+  - name: bndry-mgmnt-route
+    paths:
+    - /egov-bndry-mgmnt
+    strip_path: false
+  plugins:
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
 - name: digit-ui
   url: http://digit-ui:80
   tags:

@@ -612,6 +612,163 @@ services:
     networks:
     - egov-network
 
+  # ===========================================================================
+  # Filestore Service - File upload/download
+  # ===========================================================================
+  egov-filestore:
+    image: egovio/egov-filestore:v2.9.2-4a60f20
+    container_name: egov-filestore
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:otel:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_TABLE: filestore_schema_version
+      SERVER_PORT: 8083
+      OTEL_TRACES_EXPORTER: none
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m
+      # Local disk storage (for dev - prod uses S3/Azure)
+      ISFILEENABLED: 'true'
+      FILE_STORAGE_MOUNT_PATH: /filestore
+      ALLOWED_FORMATS: pdf,doc,docx,xls,xlsx,png,jpg,jpeg,gif,txt,csv,xml,json
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094
+    volumes:
+      - filestore_data:/filestore
+    ports:
+      - 18084:8083
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/filestore/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.25'
+    networks:
+      - egov-network
+
+  # ===========================================================================
+  # HRMS Service - Employee management
+  # ===========================================================================
+  egov-hrms:
+    image: egovio/egov-hrms:hrms-boundary-0a4e737
+    container_name: egov-hrms
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+      egov-idgen:
+        condition: service_healthy
+      egov-user:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_DATASOURCE_USERNAME: egov
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "5"
+      SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "2"
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/egov
+      SPRING_FLYWAY_USER: egov
+      SPRING_FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: 'true'
+      SPRING_FLYWAY_ENABLED: 'true'
+      SPRING_FLYWAY_TABLE: hrms_schema_version
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      SPRING_KAFKA_CONSUMER_GROUP_ID: employee-group1
+      SERVER_PORT: 8092
+      OTEL_TRACES_EXPORTER: none
+      JAVA_TOOL_OPTIONS: -Xms64m -Xmx192m
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094
+      EGOV_IDGEN_HOST: http://egov-idgen:8088
+      EGOV_USER_HOST: http://egov-user:8107
+      EGOV_FILESTORE_HOST: http://egov-filestore:8083
+      EGOV_LOCALIZATION_HOST: http://egov-localization:8096
+      STATE_LEVEL_TENANT_ID: pg
+    ports:
+      - 18092:8092
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8092/egov-hrms/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 150s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    networks:
+      - egov-network
+
+  # ===========================================================================
+  # Boundary Management Service - Boundary generation from Excel
+  # ===========================================================================
+  egov-bndry-mgmnt:
+    image: egovio/egov-bndry-mgmnt:bndry-mgmnt-3794b8c
+    container_name: egov-bndry-mgmnt
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      egov-mdms-service:
+        condition: service_healthy
+      egov-filestore:
+        condition: service_healthy
+      boundary-service:
+        condition: service_healthy
+    environment:
+      # Node.js service
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: egov
+      DB_USER: egov
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-egov123}
+      # Try multiple Kafka env var names
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      BOOTSTRAP_SERVERS: redpanda:9092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      EGOV_MDMS_HOST: http://egov-mdms-service:8094
+      EGOV_BOUNDARY_HOST: http://boundary-service:8081
+      EGOV_FILESTORE_HOST: http://egov-filestore:8083
+      STATE_LEVEL_TENANT_ID: pg
+      KAFKAJS_NO_PARTITIONER_WARNING: 1
+    ports:
+      - 18086:8080
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.5'
+    networks:
+      - egov-network
+
   mdms-tenant-seed:
     image: postgres:16
     depends_on:
