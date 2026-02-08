@@ -162,10 +162,10 @@ class UnifiedExcelReader:
 
 
     def read_tenant_branding(self, tenant_id: str):
-        """Read Tenant Branding sheet
+        """Read Tenant Branding sheet and format for common-masters.StateInfo schema
 
         Returns:
-            list: Branding information records for MDMS upload
+            list: StateInfo records for MDMS upload (branding, languages, etc.)
         """
         try:
             df = pd.read_excel(self.excel_file, sheet_name='Tenant Branding Details')
@@ -175,15 +175,33 @@ class UnifiedExcelReader:
 
         branding_list = []
         for _, row in df.iterrows():
-                branding_record = {
-                     'code':tenant_id,
-                    'name':tenant_id,
-                    'bannerUrl': str(row.get('Banner URL', '')) if pd.notna(row.get('Banner URL')) else "",
-                    'logoUrl': str(row.get('Logo URL', '')) if pd.notna(row.get('Logo URL')) else "",
-                    'logoUrlWhite': str(row.get('Logo URL (White)', '')) if pd.notna(row.get('Logo URL (White)')) else "",
-                    'statelogo': str(row.get('State Logo', '')) if pd.notna(row.get('State Logo')) else ""
-                }
-                branding_list.append(branding_record)
+            # Skip empty rows
+            if pd.isna(row.get('Banner URL')) and pd.isna(row.get('Logo URL')):
+                continue
+
+            # Format for common-masters.StateInfo schema
+            branding_record = {
+                'code': tenant_id,
+                'name': tenant_id.split('.')[-1].title() if '.' in tenant_id else tenant_id.title(),
+                'qrCodeURL': str(row.get('QR Code URL', '')) if pd.notna(row.get('QR Code URL')) else "",
+                'bannerUrl': str(row.get('Banner URL', '')) if pd.notna(row.get('Banner URL')) else "",
+                'logoUrl': str(row.get('Logo URL', '')) if pd.notna(row.get('Logo URL')) else "",
+                'logoUrlWhite': str(row.get('Logo URL (White)', '')) if pd.notna(row.get('Logo URL (White)')) else "",
+                'statelogo': str(row.get('State Logo', '')) if pd.notna(row.get('State Logo')) else "",
+                'hasLocalisation': True,
+                'defaultUrl': {
+                    'citizen': '/user/register',
+                    'employee': '/user/login'
+                },
+                'languages': [
+                    {'label': 'ENGLISH', 'value': 'en_IN'}
+                ],
+                'localizationModules': [
+                    {'label': 'rainmaker-common', 'value': 'rainmaker-common'},
+                    {'label': 'rainmaker-pgr', 'value': 'rainmaker-pgr'}
+                ]
+            }
+            branding_list.append(branding_record)
 
         return branding_list
 
@@ -2185,6 +2203,15 @@ class APIUploader:
             if not file_url:
                 print("❌ Invalid file URL")
                 return None
+
+            # Fix MinIO URL for external access (outside Docker)
+            # minio:9000 -> localhost:19000
+            if 'minio:9000' in file_url:
+                file_url = file_url.replace('minio:9000', 'localhost:19000')
+            elif 'minio:' in file_url:
+                # Handle other port configurations
+                import re
+                file_url = re.sub(r'minio:(\d+)', r'localhost:19000', file_url)
 
             print(f"\n📥 Downloading from S3...")
 
