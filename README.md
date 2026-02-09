@@ -15,19 +15,139 @@ git clone https://github.com/egovernments/Citizen-Complaint-Resolution-System.gi
 # 3. Start with Tilt (recommended)
 tilt up
 
-# 4. Access DIGIT UI
+# 4. Open the Tilt dashboard and verify the health of services
+open http://localhost:10350/
+
+# 5. Access DIGIT UI
 open http://localhost:18000/digit-ui/
+
+```
+### Verify your set up
+
+```bash
+# 1. Check all services are healthy
+./scripts/health-check.sh
+
+# 2. Run smoke tests
+./scripts/smoke-tests.sh
+
+# 3. Test ID generation
+curl -X POST "http://localhost:18088/egov-idgen/id/_generate" \
+  -H "Content-Type: application/json" \
+  -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}'
+```
+
+## End-to-End Testing
+
+### Test Credentials
+
+A default admin user is created by the `user-schema-seed` service:
+
+| Username | Password | Type | Tenant |
+|----------|----------|------|--------|
+| `ADMIN` | `eGov@123` | EMPLOYEE | pg |
+
+**Note:** The admin user has roles: SUPERUSER, EMPLOYEE (pg), PGR-ADMIN, GRO (pg.citya)
+
+### Manual UI Test Flow
+
+1. Open http://localhost:18000/digit-ui/
+2. Select language → Select city (City A)
+3. Login as Employee: `ADMIN@pg` / `eGov@123`
+4. Navigate to Complaints → Create new complaint
+5. Fill form and submit
+6. Verify complaint appears in inbox
+
+### API Test Flow
+
+```bash
+# 1. Get auth token
+TOKEN=$(curl -s -X POST "http://localhost:18000/user/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Authorization: Basic ZWdvdi11c2VyLWNsaWVudDo=" \
+  -d "username=ADMIN@pg&password=eGov@123&tenantId=pg&grant_type=password&scope=read&userType=EMPLOYEE" | jq -r '.access_token')
+
+# 2. Create a complaint
+curl -X POST "http://localhost:18000/pgr-services/v2/request/_create" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "RequestInfo": {"apiId": "Rainmaker", "authToken": "'$TOKEN'"},
+    "service": {
+      "tenantId": "pg.citya",
+      "serviceCode": "StreetLightNotWorking",
+      "description": "Test complaint from API",
+      "source": "web",
+      "address": {"city": "pg.citya", "locality": {"code": "SL001"}}
+    }
+  }'
+
+# 3. Search complaints
+curl -X POST "http://localhost:18000/pgr-services/v2/request/_search" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"RequestInfo": {"apiId": "Rainmaker", "authToken": "'$TOKEN'"}, "tenantId": "pg.citya"}'
+```
+
+## API Access
+
+All APIs are available through Kong gateway at `http://localhost:18000`:
+
+```bash
+# MDMS search
+curl -X POST "http://localhost:18000/mdms-v2/v1/_search" \
+  -H "Content-Type: application/json" \
+  -d '{"MdmsCriteria":{"tenantId":"pg","moduleDetails":[{"moduleName":"tenant","masterDetails":[{"name":"tenants"}]}]},"RequestInfo":{"apiId":"Rainmaker"}}'
+
+# User login (after creating user - see Test Credentials section)
+curl -X POST "http://localhost:18000/user/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -H "Authorization: Basic ZWdvdi11c2VyLWNsaWVudDo=" \
+  -d "username=ADMIN&password=eGov@123&tenantId=pg&grant_type=password&scope=read&userType=EMPLOYEE"
+```
+
+## Database Access
+
+```bash
+# Connect to Postgres
+docker exec -it docker-postgres psql -U egov -d egov
+
+# Common queries
+\dt                          # List tables
+SELECT * FROM eg_user LIMIT 5;
 ```
 
 ## Prerequisites
 
 - Docker Desktop (or Docker Engine + Compose v2)
-- [Tilt](https://docs.tilt.dev/install.html) (recommended for development)
+- **Patched Tilt** (see below) - required for proper health check handling
 - 8+ GB RAM available for Docker
 
 **For hot reload development (optional):**
 - Maven 3.9+ (for PGR Java hot reload)
 - Node.js 14+ and Yarn (for UI hot reload)
+
+### Installing Patched Tilt
+
+This project requires a patched version of Tilt that properly waits for Docker Compose health checks before marking services as ready. The upstream Tilt has a bug where it considers containers "ready" as soon as they're "running", ignoring health check status.
+
+```bash
+# Linux amd64
+curl -fsSL https://github.com/ChakshuGautam/tilt/releases/download/v0.36.3-healthcheck/tilt-linux-amd64.gz | gunzip > /usr/local/bin/tilt
+chmod +x /usr/local/bin/tilt
+
+# Verify installation
+tilt version
+# Should show: v0.36.3-dev
+```
+
+**Why is this needed?**
+- Services like HRMS require other services (egov-user, egov-enc-service) to be fully healthy before starting
+- Docker Compose `depends_on: condition: service_healthy` handles this correctly
+- But Tilt bypasses this by using `--no-deps` and only checking if containers are "running"
+- The patched Tilt checks the `HealthStatus` field and waits for "healthy" before proceeding
+
+**PR to upstream:** https://github.com/tilt-dev/tilt/pull/6682
 
 ## What's Included
 
@@ -148,100 +268,7 @@ This builds images using Docker (slower initial build, no hot reload).
 - `globalConfigs.js` is mounted from `CCRS/configs/assets/globalConfigsPGR.js`
 - Edit this file to change tenant ID, API keys, feature flags
 
-## End-to-End Testing
 
-### Test Credentials
-
-A default admin user is created by the `user-schema-seed` service:
-
-| Username | Password | Type | Tenant |
-|----------|----------|------|--------|
-| `ADMIN` | `eGov@123` | EMPLOYEE | pg |
-
-**Note:** The admin user has roles: SUPERUSER, EMPLOYEE (pg), PGR-ADMIN, GRO (pg.citya)
-
-### Quick Verification
-
-```bash
-# 1. Check all services are healthy
-./scripts/health-check.sh
-
-# 2. Run smoke tests
-./scripts/smoke-tests.sh
-
-# 3. Test ID generation
-curl -X POST "http://localhost:18088/egov-idgen/id/_generate" \
-  -H "Content-Type: application/json" \
-  -d '{"RequestInfo":{"apiId":"digit","ver":"1.0"},"idRequests":[{"tenantId":"pg","idName":"pgr.servicerequestid"}]}'
-```
-
-### Manual UI Test Flow
-
-1. Open http://localhost:18000/digit-ui/
-2. Select language → Select city (City A)
-3. Login as Employee: `ADMIN@pg` / `eGov@123`
-4. Navigate to Complaints → Create new complaint
-5. Fill form and submit
-6. Verify complaint appears in inbox
-
-### API Test Flow
-
-```bash
-# 1. Get auth token
-TOKEN=$(curl -s -X POST "http://localhost:18000/user/oauth/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -H "Authorization: Basic ZWdvdi11c2VyLWNsaWVudDo=" \
-  -d "username=ADMIN@pg&password=eGov@123&tenantId=pg&grant_type=password&scope=read&userType=EMPLOYEE" | jq -r '.access_token')
-
-# 2. Create a complaint
-curl -X POST "http://localhost:18000/pgr-services/v2/request/_create" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "RequestInfo": {"apiId": "Rainmaker", "authToken": "'$TOKEN'"},
-    "service": {
-      "tenantId": "pg.citya",
-      "serviceCode": "StreetLightNotWorking",
-      "description": "Test complaint from API",
-      "source": "web",
-      "address": {"city": "pg.citya", "locality": {"code": "SL001"}}
-    }
-  }'
-
-# 3. Search complaints
-curl -X POST "http://localhost:18000/pgr-services/v2/request/_search" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"RequestInfo": {"apiId": "Rainmaker", "authToken": "'$TOKEN'"}, "tenantId": "pg.citya"}'
-```
-
-## API Access
-
-All APIs are available through Kong gateway at `http://localhost:18000`:
-
-```bash
-# MDMS search
-curl -X POST "http://localhost:18000/mdms-v2/v1/_search" \
-  -H "Content-Type: application/json" \
-  -d '{"MdmsCriteria":{"tenantId":"pg","moduleDetails":[{"moduleName":"tenant","masterDetails":[{"name":"tenants"}]}]},"RequestInfo":{"apiId":"Rainmaker"}}'
-
-# User login (after creating user - see Test Credentials section)
-curl -X POST "http://localhost:18000/user/oauth/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -H "Authorization: Basic ZWdvdi11c2VyLWNsaWVudDo=" \
-  -d "username=ADMIN&password=eGov@123&tenantId=pg&grant_type=password&scope=read&userType=EMPLOYEE"
-```
-
-## Database Access
-
-```bash
-# Connect to Postgres
-docker exec -it docker-postgres psql -U egov -d egov
-
-# Common queries
-\dt                          # List tables
-SELECT * FROM eg_user LIMIT 5;
-```
 
 ## Troubleshooting
 

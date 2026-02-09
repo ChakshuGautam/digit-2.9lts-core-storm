@@ -71,7 +71,7 @@ Or run in CI mode without hot reload:
         'pgr-services-dev',
         context=PGR_PATH + '/target/extracted',
         dockerfile_contents='''
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre-jammy
 WORKDIR /app
 COPY . /app
 ENTRYPOINT ["java", "-cp", ".:BOOT-INF/lib/*:BOOT-INF/classes", "org.egov.pgr.PGRApp"]
@@ -119,56 +119,77 @@ else:
     )
 
 # Load docker-compose configuration
+# Note: wait=True blocks until ALL containers are healthy, which is too slow
+# Instead, rely on docker-compose depends_on with service_healthy conditions
 docker_compose('./docker-compose.yml')
 
 # ==================== Infrastructure ====================
 dc_resource('postgres-db', labels=['infrastructure'])
+dc_resource('pgbouncer', labels=['infrastructure'])
 dc_resource('redis', labels=['infrastructure'])
 dc_resource('redpanda', labels=['infrastructure'])
-dc_resource('elasticsearch', labels=['infrastructure'])
+# Elasticsearch disabled by default (uses profiles: tools in docker-compose)
+# dc_resource('elasticsearch', labels=['infrastructure'])
+dc_resource('gatus', labels=['infrastructure'], auto_init=True,
+    links=[
+        link('http://localhost:18889', 'Health Dashboard'),
+    ])
 
 # ==================== Core Services ====================
+dc_resource('mdms-backend', labels=['core-services'],
+    resource_deps=['pgbouncer', 'redpanda'],
+)
+
 dc_resource('egov-mdms-service', labels=['core-services'],
+    resource_deps=['mdms-backend'],
     links=[
         link('http://localhost:18094/mdms-v2/health', 'Health'),
     ])
 
 dc_resource('egov-enc-service', labels=['core-services'],
+    resource_deps=['egov-mdms-service', 'mdms-tenant-seed'],
     links=[
         link('http://localhost:11234/egov-enc-service/actuator/health', 'Health'),
     ])
 
 dc_resource('egov-idgen', labels=['core-services'],
+    resource_deps=['egov-mdms-service', 'db-migrations'],
     links=[
         link('http://localhost:18088/egov-idgen/health', 'Health'),
     ])
 
 dc_resource('egov-user', labels=['core-services'],
+    resource_deps=['egov-enc-service', 'mdms-security-seed', 'db-migrations'],
     links=[
         link('http://localhost:18107/user/health', 'Health'),
     ])
 
 dc_resource('egov-workflow-v2', labels=['core-services'],
+    resource_deps=['egov-idgen', 'mdms-workflow-seed'],
     links=[
         link('http://localhost:18109/egov-workflow-v2/health', 'Health'),
     ])
 
 dc_resource('egov-localization', labels=['core-services'],
+    resource_deps=['egov-mdms-service', 'db-migrations'],
     links=[
         link('http://localhost:18096/localization/actuator/health', 'Health'),
     ])
 
 dc_resource('boundary-service', labels=['core-services'],
+    resource_deps=['egov-mdms-service'],
     links=[
         link('http://localhost:18081/boundary-service/actuator/health', 'Health'),
     ])
 
 dc_resource('egov-accesscontrol', labels=['core-services'],
+    resource_deps=['egov-mdms-service'],
     links=[
         link('http://localhost:18090/access/health', 'Health'),
     ])
 
 dc_resource('egov-persister', labels=['core-services'],
+    resource_deps=['egov-mdms-service'],
     links=[
         link('http://localhost:18091/common-persist/actuator/health', 'Health'),
     ])
@@ -183,29 +204,86 @@ dc_resource('kong', labels=['gateway'],
 
 # ==================== PGR Services ====================
 dc_resource('pgr-services', labels=['pgr'],
+    resource_deps=['egov-idgen', 'egov-user', 'egov-workflow-v2', 'egov-localization', 'db-seed'],
     links=[
         link('http://localhost:18083/pgr-services/health', 'Health'),
     ])
 
+dc_resource('jupyter', labels=['pgr'], auto_init=True,
+    links=[
+        link('http://localhost:18888/lab', 'Jupyter Lab'),
+    ])
+
 dc_resource('digit-ui', labels=['frontend'],
+    resource_deps=['kong'],  # Wait for Kong gateway to be ready
     links=[
         link('http://localhost:18000/digit-ui/', 'UI via Kong'),
     ])
 
 # ==================== Seed Jobs ====================
-dc_resource('db-seed', labels=['seeds'], auto_init=True)
-dc_resource('mdms-tenant-seed', labels=['seeds'], auto_init=True)
-dc_resource('mdms-workflow-seed', labels=['seeds'], auto_init=True)
-dc_resource('mdms-security-seed', labels=['seeds'], auto_init=True)
-dc_resource('localization-seed', labels=['seeds'], auto_init=True)
-dc_resource('pgr-workflow-seed', labels=['seeds'], auto_init=True)
+dc_resource('db-migrations', labels=['seeds'], auto_init=True,
+    resource_deps=['pgbouncer'],
+)
+dc_resource('mdms-tenant-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['mdms-backend'],
+)
+dc_resource('mdms-workflow-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['mdms-tenant-seed'],
+)
+dc_resource('mdms-security-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['mdms-tenant-seed'],
+)
+dc_resource('localization-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['egov-localization'],
+)
+dc_resource('db-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['mdms-tenant-seed', 'mdms-workflow-seed', 'mdms-security-seed', 'localization-seed', 'egov-workflow-v2', 'egov-accesscontrol'],
+)
+dc_resource('pgr-workflow-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['egov-workflow-v2', 'mdms-workflow-seed'],
+)
+dc_resource('user-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['egov-user', 'egov-enc-service', 'db-seed'],
+)
+dc_resource('mdms-bndry-mgmnt-seed', labels=['seeds'], auto_init=True,
+    resource_deps=['mdms-tenant-seed'],
+)
+
+# ==================== HRMS ====================
+dc_resource('hrms-prereq-gate', labels=['hrms'], auto_init=True,
+    resource_deps=['egov-user', 'user-seed'],
+)
+dc_resource('egov-hrms', labels=['hrms'],
+    resource_deps=['hrms-prereq-gate', 'egov-mdms-service', 'egov-idgen', 'egov-user'],
+    links=[
+        link('http://localhost:18092/egov-hrms/employees/_search', 'Health'),
+    ])
+
+# ==================== Additional Services ====================
+dc_resource('minio', labels=['infrastructure'])
+dc_resource('minio-init', labels=['infrastructure'],
+    resource_deps=['minio'],
+)
+dc_resource('egov-filestore', labels=['core-services'],
+    resource_deps=['minio-init', 'egov-mdms-service'],
+    links=[
+        link('http://localhost:18083/filestore/health', 'Health'),
+    ])
+dc_resource('egov-bndry-mgmnt', labels=['core-services'],
+    resource_deps=['boundary-service', 'egov-filestore', 'mdms-bndry-mgmnt-seed'],
+    links=[
+        link('http://localhost:18081/boundary-management/actuator/health', 'Health'),
+    ])
+dc_resource('default-data-handler', labels=['core-services'],
+    resource_deps=['mdms-backend'],
+)
 
 # ==================== Local Resources ====================
 
 # Database reset - manually triggered only
 local_resource(
     'nuke-db',
-    cmd='docker compose down -v && docker compose up -d postgres redis redpanda elasticsearch',
+    cmd='docker compose down -v && docker compose up -d postgres redis redpanda',
     auto_init=False,
     labels=['maintenance'],
 )
@@ -215,7 +293,7 @@ local_resource(
 # Nuke Database button - removes all data and restarts infrastructure
 cmd_button(
     name='nuke-db-btn',
-    argv=['sh', '-c', 'docker compose down -v && docker compose up -d postgres redis redpanda elasticsearch'],
+    argv=['sh', '-c', 'docker compose down -v && docker compose up -d postgres redis redpanda'],
     location=location.NAV,
     icon_name='delete_forever',
     text='Nuke DB',

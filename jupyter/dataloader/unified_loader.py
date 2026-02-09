@@ -162,10 +162,10 @@ class UnifiedExcelReader:
 
 
     def read_tenant_branding(self, tenant_id: str):
-        """Read Tenant Branding sheet
+        """Read Tenant Branding sheet and format for common-masters.StateInfo schema
 
         Returns:
-            list: Branding information records for MDMS upload
+            list: StateInfo records for MDMS upload (branding, languages, etc.)
         """
         try:
             df = pd.read_excel(self.excel_file, sheet_name='Tenant Branding Details')
@@ -175,15 +175,33 @@ class UnifiedExcelReader:
 
         branding_list = []
         for _, row in df.iterrows():
-                branding_record = {
-                     'code':tenant_id,
-                    'name':tenant_id,
-                    'bannerUrl': str(row.get('Banner URL', '')) if pd.notna(row.get('Banner URL')) else "",
-                    'logoUrl': str(row.get('Logo URL', '')) if pd.notna(row.get('Logo URL')) else "",
-                    'logoUrlWhite': str(row.get('Logo URL (White)', '')) if pd.notna(row.get('Logo URL (White)')) else "",
-                    'statelogo': str(row.get('State Logo', '')) if pd.notna(row.get('State Logo')) else ""
-                }
-                branding_list.append(branding_record)
+            # Skip empty rows
+            if pd.isna(row.get('Banner URL')) and pd.isna(row.get('Logo URL')):
+                continue
+
+            # Format for common-masters.StateInfo schema
+            branding_record = {
+                'code': tenant_id,
+                'name': tenant_id.split('.')[-1].title() if '.' in tenant_id else tenant_id.title(),
+                'qrCodeURL': str(row.get('QR Code URL', '')) if pd.notna(row.get('QR Code URL')) else "",
+                'bannerUrl': str(row.get('Banner URL', '')) if pd.notna(row.get('Banner URL')) else "",
+                'logoUrl': str(row.get('Logo URL', '')) if pd.notna(row.get('Logo URL')) else "",
+                'logoUrlWhite': str(row.get('Logo URL (White)', '')) if pd.notna(row.get('Logo URL (White)')) else "",
+                'statelogo': str(row.get('State Logo', '')) if pd.notna(row.get('State Logo')) else "",
+                'hasLocalisation': True,
+                'defaultUrl': {
+                    'citizen': '/user/register',
+                    'employee': '/user/login'
+                },
+                'languages': [
+                    {'label': 'ENGLISH', 'value': 'en_IN'}
+                ],
+                'localizationModules': [
+                    {'label': 'rainmaker-common', 'value': 'rainmaker-common'},
+                    {'label': 'rainmaker-pgr', 'value': 'rainmaker-pgr'}
+                ]
+            }
+            branding_list.append(branding_record)
 
         return branding_list
 
@@ -661,8 +679,8 @@ class APIUploader:
             self.base_url = self.base_url[:-1]
 
         # Service endpoints from .env (configurable)
-        # MDMS path varies by environment: /mdms-v2 (chakshu) or /egov-mdms-service (unified-dev)
-        mdms_v2_service = os.getenv("MDMS_V2_SERVICE", None)  # Auto-detect if not set
+        # MDMS path - default to /mdms-v2
+        mdms_v2_service = os.getenv("MDMS_V2_SERVICE", "/mdms-v2")
         boundary_service = os.getenv("BOUNDARY_SERVICE", "/boundary-service")
         boundary_mgmt_service = os.getenv("BOUNDARY_MGMT_SERVICE", "/egov-bndry-mgmnt")
         localization_service = os.getenv("LOCALIZATION_SERVICE", "/localization")
@@ -2027,7 +2045,7 @@ class APIUploader:
         Returns:
             Dict with generation task details
         """
-        url = f"{self.boundary_mgmt_url}/v1/_generate"
+        url = f"{self.boundary_mgmt_url}/boundary-management/v1/_generate"
 
         params = {
             "tenantId": tenant_id,
@@ -2084,7 +2102,7 @@ class APIUploader:
         Returns:
             Dict with fileStoreId when complete
         """
-        url = f"{self.boundary_mgmt_url}/v1/_generate-search"
+        url = f"{self.boundary_mgmt_url}/boundary-management/v1/_generate-search"
 
         params = {
             "tenantId": tenant_id,
@@ -2185,6 +2203,15 @@ class APIUploader:
             if not file_url:
                 print("❌ Invalid file URL")
                 return None
+
+            # Fix MinIO URL for external access (outside Docker)
+            # minio:9000 -> localhost:19000
+            if 'minio:9000' in file_url:
+                file_url = file_url.replace('minio:9000', 'localhost:19000')
+            elif 'minio:' in file_url:
+                # Handle other port configurations
+                import re
+                file_url = re.sub(r'minio:(\d+)', r'localhost:19000', file_url)
 
             print(f"\n📥 Downloading from S3...")
 

@@ -80,6 +80,386 @@ class CRSLoader:
         if not self._authenticated or not self.uploader:
             raise RuntimeError("Not authenticated. Call login() first.")
 
+    @property
+    def auth_token(self) -> str:
+        """Get current auth token"""
+        return self.uploader.auth_token if self.uploader else None
+
+    @property
+    def user_info(self) -> dict:
+        """Get current user info"""
+        return self.uploader.user_info if self.uploader else None
+
+    def create_tenant(self, tenant_code: str, display_name: str = None,
+                      enable_modules: list = None, users: list = None) -> bool:
+        """Create a tenant if it doesn't exist
+
+        Args:
+            tenant_code: Tenant code (e.g., "statea.chakshu", "pg.citya")
+            display_name: Display name (derived from code if not provided)
+            enable_modules: List of modules to enable (default: ["PGR", "HRMS"])
+            users: List of users to create for this tenant. Each user is a dict:
+                   {"username": str, "password": str, "name": str, "roles": list,
+                    "mobile": str (optional), "email": str (optional), "type": str (optional)}
+                   Default roles: ["EMPLOYEE"]. Type defaults to "EMPLOYEE".
+
+        Returns:
+            bool: True if tenant exists or was created successfully
+
+        Example:
+            loader.login(username="ADMIN", password="eGov@123", tenant_id="pg")
+            loader.create_tenant("statea.chakshu", "Chakshu State", users=[
+                {"username": "ADMIN", "password": "eGov@123", "name": "Admin", "roles": ["SUPERUSER", "EMPLOYEE", "GRO", "DGRO"]},
+                {"username": "GRO", "password": "eGov@123", "name": "GRO User", "roles": ["EMPLOYEE", "GRO", "DGRO"]}
+            ])
+        """
+        self._check_auth()
+
+        if enable_modules is None:
+            enable_modules = ["PGR", "HRMS"]
+
+        # Check if tenant exists
+        search_url = f"{self.base_url}/mdms-v2/v1/_search"
+        search_payload = {
+            "MdmsCriteria": {
+                "tenantId": "pg",
+                "moduleDetails": [{"moduleName": "tenant", "masterDetails": [{"name": "tenants"}]}]
+            },
+            "RequestInfo": {"apiId": "Rainmaker"}
+        }
+
+        resp = requests.post(search_url, json=search_payload, headers={"Content-Type": "application/json"})
+        existing_tenants = []
+        if resp.ok:
+            try:
+                tenants = resp.json().get("MdmsRes", {}).get("tenant", {}).get("tenants", [])
+                existing_tenants = [t.get("code", "").lower() for t in tenants]
+            except:
+                pass
+
+        if tenant_code.lower() in existing_tenants:
+            print(f"✅ Tenant '{tenant_code}' already exists")
+            return True
+
+        print(f"📝 Creating tenant '{tenant_code}'...")
+
+        # Derive display name if not provided
+        if not display_name:
+            display_name = tenant_code.replace(".", " ").title()
+
+        # Create tenant via MDMS v2 API
+        create_url = f"{self.base_url}/mdms-v2/v2/_create/tenant.tenants"
+        tenant_data = {
+            "code": tenant_code,
+            "name": display_name,
+            "tenantId": tenant_code,
+            "type": "CITY",
+            "city": {
+                "code": tenant_code.upper().replace(".", "_"),
+                "name": display_name,
+                "districtName": display_name
+            }
+        }
+
+        create_payload = {
+            "RequestInfo": {
+                "apiId": "Rainmaker",
+                "authToken": self.auth_token,
+                "userInfo": self.user_info
+            },
+            "Mdms": {
+                "tenantId": "pg",
+                "schemaCode": "tenant.tenants",
+                "data": tenant_data,
+                "isActive": True
+            }
+        }
+
+        resp = requests.post(create_url, json=create_payload, headers={"Content-Type": "application/json"})
+
+        if resp.ok:
+            print(f"✅ Tenant '{tenant_code}' created successfully!")
+
+            # Enable modules for the tenant
+            for module in enable_modules:
+                self._enable_module_for_tenant(tenant_code, module)
+
+            # Create users for the tenant
+            if users:
+                print(f"\n👥 Creating {len(users)} user(s) for tenant '{tenant_code}'...")
+                for user_def in users:
+                    self._create_user_for_tenant(tenant_code, user_def)
+
+            return True
+        else:
+            print(f"❌ Failed to create tenant: {resp.status_code}")
+            try:
+                error = resp.json()
+                # Check if it's a "already exists" error
+                if "already exists" in str(error).lower() or "duplicate" in str(error).lower():
+                    print(f"   (Tenant may already exist)")
+                    return True
+                print(f"   Error: {error}")
+            except:
+                print(f"   Response: {resp.text[:200]}")
+            return False
+
+    def _enable_module_for_tenant(self, tenant_code: str, module_code: str):
+        """Add tenant to citymodule for a specific module (internal)
+
+        Note: MDMS v2 API doesn't support updating unique fields or deleting records easily.
+        This function updates the database directly via SQL if the API approach fails.
+        """
+        # Search for existing citymodule config
+        search_url = f"{self.base_url}/mdms-v2/v1/_search"
+        search_payload = {
+            "MdmsCriteria": {
+                "tenantId": "pg",
+                "moduleDetails": [{"moduleName": "tenant", "masterDetails": [{"name": "citymodule"}]}]
+            },
+            "RequestInfo": {"apiId": "Rainmaker"}
+        }
+
+        resp = requests.post(search_url, json=search_payload, headers={"Content-Type": "application/json"})
+        if not resp.ok:
+            print(f"   ⚠️  Could not fetch citymodule config for {module_code}")
+            return
+
+        citymodules = resp.json().get("MdmsRes", {}).get("tenant", {}).get("citymodule", [])
+
+        # Find the module config
+        module_config = None
+        for cm in citymodules:
+            if cm.get("code") == module_code:
+                module_config = cm
+                break
+
+        if not module_config:
+            print(f"   ⚠️  Module '{module_code}' not found in citymodule")
+            return
+
+        # Check if tenant already in module
+        existing_tenants = [t.get("code", "").lower() for t in module_config.get("tenants", [])]
+        if tenant_code.lower() in existing_tenants:
+            print(f"   ✅ {module_code} already enabled")
+            return
+
+        # Try database update via persister (if available)
+        # This uses the internal MDMS database update
+        try:
+            self._update_citymodule_db(module_code, tenant_code, module_config)
+        except Exception as e:
+            print(f"   ⚠️  {module_code}: Add tenant manually to citymodule (MDMS v2 API limitation)")
+
+    def _update_citymodule_db(self, module_code: str, tenant_code: str, current_config: dict):
+        """Update citymodule via database query through boundary-service workaround"""
+        import subprocess
+        import json as json_lib
+
+        # Add tenant to config
+        new_tenants = current_config.get("tenants", []) + [{"code": tenant_code}]
+        new_config = current_config.copy()
+        new_config["tenants"] = new_tenants
+
+        # Try to use psql to update directly (if running locally with Docker)
+        try:
+            # Get unique identifier hash
+            import hashlib
+            config_str = json_lib.dumps(new_config, sort_keys=True, separators=(',', ':'))
+
+            # Construct SQL update
+            sql = f"""
+            UPDATE eg_mdms_data
+            SET data = '{json_lib.dumps(new_config)}'::jsonb,
+                lastmodifiedtime = EXTRACT(EPOCH FROM NOW())::bigint * 1000
+            WHERE schemacode = 'tenant.citymodule'
+              AND tenantid = 'pg'
+              AND data->>'code' = '{module_code}';
+            """
+
+            result = subprocess.run(
+                ["docker", "exec", "docker-postgres", "psql", "-U", "egov", "-d", "egov", "-c", sql],
+                capture_output=True, text=True, timeout=10
+            )
+
+            if result.returncode == 0 and "UPDATE 1" in result.stdout:
+                print(f"   ✅ {module_code} enabled (via DB)")
+            else:
+                raise Exception(f"SQL update failed: {result.stderr or result.stdout}")
+
+        except subprocess.TimeoutExpired:
+            raise Exception("Database update timed out")
+        except FileNotFoundError:
+            raise Exception("Docker not available")
+        except Exception as e:
+            raise Exception(str(e))
+
+    def _ensure_roles_exist(self, state_tenant: str, role_codes: list):
+        """Ensure all required roles exist for the state tenant, create if missing
+
+        Args:
+            state_tenant: State-level tenant ID where roles should be defined
+            role_codes: List of role codes to check/create
+        """
+        # Standard role definitions
+        role_definitions = {
+            "SUPERUSER": {"name": "Super User", "description": "System Administrator"},
+            "EMPLOYEE": {"name": "Employee", "description": "Default role for all employees"},
+            "GRO": {"name": "Grievance Routing Officer", "description": "One who will assess & assign complaints"},
+            "DGRO": {"name": "Department GRO", "description": "Department Grievance Routing Officer"},
+            "CSR": {"name": "Complainant", "description": "One who will create complaints"},
+            "PGR_LME": {"name": "Complaint Resolver", "description": "One who will resolve complaints"},
+            "CITIZEN": {"name": "Citizen", "description": "Citizen who can raise complaint"},
+            "HRMS_ADMIN": {"name": "HRMS Admin", "description": "HRMS Admin"},
+            "MDMS_ADMIN": {"name": "MDMS Admin", "description": "MDMS User that can create and search schema"},
+        }
+
+        # Get existing roles for the state tenant
+        search_url = f"{self.base_url}/mdms-v2/v1/_search"
+        search_payload = {
+            "MdmsCriteria": {
+                "tenantId": state_tenant,
+                "moduleDetails": [{"moduleName": "ACCESSCONTROL-ROLES", "masterDetails": [{"name": "roles"}]}]
+            },
+            "RequestInfo": {"apiId": "Rainmaker"}
+        }
+
+        existing_roles = set()
+        try:
+            resp = requests.post(search_url, json=search_payload, headers={"Content-Type": "application/json"})
+            if resp.ok:
+                roles_data = resp.json().get("MdmsRes", {}).get("ACCESSCONTROL-ROLES", {}).get("roles", [])
+                existing_roles = {r.get("code") for r in roles_data}
+        except:
+            pass
+
+        # Find missing roles
+        missing_roles = [r for r in role_codes if r not in existing_roles]
+
+        if not missing_roles:
+            return
+
+        # Create missing roles via MDMS v2 API
+        create_url = f"{self.base_url}/mdms-v2/v2/_create/ACCESSCONTROL-ROLES.roles"
+
+        for role_code in missing_roles:
+            role_def = role_definitions.get(role_code, {"name": role_code, "description": role_code})
+            role_data = {
+                "code": role_code,
+                "name": role_def["name"],
+                "description": role_def["description"]
+            }
+
+            create_payload = {
+                "RequestInfo": {
+                    "apiId": "Rainmaker",
+                    "authToken": self.auth_token,
+                    "userInfo": self.user_info
+                },
+                "Mdms": {
+                    "tenantId": state_tenant,
+                    "schemaCode": "ACCESSCONTROL-ROLES.roles",
+                    "data": role_data,
+                    "isActive": True
+                }
+            }
+
+            try:
+                resp = requests.post(create_url, json=create_payload, headers={"Content-Type": "application/json"})
+                if resp.ok:
+                    print(f"   ✅ Created role '{role_code}' for tenant '{state_tenant}'")
+                elif "already exists" in resp.text.lower() or "duplicate" in resp.text.lower():
+                    pass  # Role already exists, skip silently
+                else:
+                    print(f"   ⚠️  Could not create role '{role_code}': {resp.text[:100]}")
+            except Exception as e:
+                print(f"   ⚠️  Error creating role '{role_code}': {str(e)}")
+
+    def _create_user_for_tenant(self, tenant_code: str, user_def: dict):
+        """Create a user for a specific tenant via egov-user API
+
+        Args:
+            tenant_code: Tenant ID for the user
+            user_def: User definition dict with keys:
+                - username (required): User's login name
+                - password (required): User's password
+                - name (optional): Display name (defaults to username)
+                - roles (optional): List of role codes (defaults to ["EMPLOYEE"])
+                - mobile (optional): Mobile number (defaults to "9999999999")
+                - email (optional): Email address
+                - type (optional): User type - "EMPLOYEE" or "CITIZEN" (defaults to "EMPLOYEE")
+        """
+        username = user_def.get("username")
+        password = user_def.get("password")
+
+        if not username or not password:
+            print(f"   ⚠️  Skipping user - missing username or password")
+            return
+
+        name = user_def.get("name", username)
+        roles = user_def.get("roles", ["EMPLOYEE"])
+        mobile = user_def.get("mobile", "9999999999")
+        email = user_def.get("email", f"{username.lower()}@digit.org")
+        user_type = user_def.get("type", "EMPLOYEE")
+
+        # Build roles array with state-level tenant ID (roles are defined at state level)
+        # Extract state tenant: "statea.c" -> "statea", "pg.citya" -> "pg"
+        state_tenant = tenant_code.split(".")[0] if "." in tenant_code else tenant_code
+
+        # Ensure all required roles exist for the state tenant
+        self._ensure_roles_exist(state_tenant, roles)
+
+        roles_array = [
+            {"code": role, "name": role, "tenantId": state_tenant}
+            for role in roles
+        ]
+
+        # Create user via egov-user API
+        create_url = f"{self.base_url}/user/users/_createnovalidate"
+        user_payload = {
+            "RequestInfo": {
+                "apiId": "Rainmaker",
+                "authToken": self.auth_token,
+                "userInfo": self.user_info
+            },
+            "User": {
+                "userName": username,
+                "name": name,
+                "mobileNumber": mobile,
+                "emailId": email,
+                "gender": "MALE",
+                "active": True,
+                "type": user_type,
+                "tenantId": tenant_code,
+                "password": password,
+                "roles": roles_array
+            }
+        }
+
+        try:
+            resp = requests.post(create_url, json=user_payload, headers={"Content-Type": "application/json"})
+
+            if resp.ok:
+                result = resp.json()
+                if result.get("User") or result.get("user"):
+                    print(f"   ✅ User '{username}' created with roles: {roles}")
+                    return
+
+            # Check for duplicate user error
+            error_text = resp.text.lower()
+            if "duplicate" in error_text or "already exists" in error_text:
+                print(f"   ℹ️  User '{username}' already exists")
+                return
+
+            print(f"   ❌ Failed to create user '{username}': {resp.status_code}")
+            try:
+                print(f"      Error: {resp.json()}")
+            except:
+                print(f"      Response: {resp.text[:200]}")
+
+        except Exception as e:
+            print(f"   ❌ Error creating user '{username}': {str(e)}")
+
     def load_tenant(self, excel_path: str, target_tenant: str = None) -> Dict:
         """Phase 1: Load tenant configuration and branding
 
@@ -121,13 +501,13 @@ class CRSLoader:
             excel_file=excel_path
         )
 
-        # 2. Create branding
-        print(f"\n[2/3] Creating branding...")
+        # 2. Create branding (StateInfo)
+        print(f"\n[2/3] Creating branding (StateInfo)...")
         branding = reader.read_tenant_branding(target_tenant)
 
         if branding:
             results['branding'] = self.uploader.create_mdms_data(
-                schema_code='tenant.citymodule',
+                schema_code='common-masters.StateInfo',
                 data_list=branding,
                 tenant=target_tenant,
                 sheet_name='Tenant Branding Details',
@@ -144,6 +524,123 @@ class CRSLoader:
 
         self._print_summary("Tenant & Branding", results)
         return results
+
+    def load_hierarchy(self, name: str, levels: list, target_tenant: str = None,
+                       output_dir: str = "upload") -> str:
+        """Phase 2a: Create boundary hierarchy and generate template
+
+        Creates a boundary hierarchy definition and generates a downloadable
+        Excel template that can be filled with boundary data.
+
+        Args:
+            name: Hierarchy type name (e.g., "REVENUE", "ADMIN")
+            levels: List of boundary level names from top to bottom
+                   (e.g., ["State", "District", "Block", "Village"])
+            target_tenant: Target tenant ID
+            output_dir: Directory to save the template (default: "upload")
+
+        Returns:
+            str: Path to downloaded template file, or None if failed
+
+        Example:
+            template = loader.load_hierarchy(
+                name="REVENUE",
+                levels=["State", "District", "Block"],
+                target_tenant="statea"
+            )
+        """
+        self._check_auth()
+
+        print(f"\n{'='*60}")
+        print(f"PHASE 2a: BOUNDARY HIERARCHY & TEMPLATE")
+        print(f"{'='*60}")
+
+        tenant = target_tenant or self.tenant_id
+        print(f"Tenant: {tenant}")
+        print(f"Hierarchy: {name}")
+        print(f"Levels: {' -> '.join(levels)}")
+
+        # Ensure output directory exists
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Step 1: Build hierarchy data structure
+        print(f"\n[1/4] Building hierarchy definition...")
+        boundary_hierarchy = []
+        for i, level in enumerate(levels):
+            level_data = {
+                "boundaryType": level,
+                "boundaryTypeHierarchyOrder": i + 1,
+                "active": True
+            }
+            # Add parent reference for non-root levels
+            if i > 0:
+                level_data["parentBoundaryType"] = levels[i - 1]
+            boundary_hierarchy.append(level_data)
+
+        hierarchy_data = {
+            "tenantId": tenant,
+            "hierarchyType": name,
+            "boundaryHierarchy": boundary_hierarchy
+        }
+
+        print(f"   Created {len(levels)} level definitions")
+
+        # Step 2: Create hierarchy
+        print(f"\n[2/4] Creating hierarchy...")
+        try:
+            result = self.uploader.create_boundary_hierarchy(hierarchy_data)
+            if result.get('exists'):
+                print(f"   Hierarchy already exists (OK)")
+            else:
+                print(f"   Hierarchy created successfully")
+        except Exception as e:
+            print(f"   ERROR: Failed to create hierarchy: {e}")
+            return None
+
+        # Step 3: Generate template
+        print(f"\n[3/4] Generating template...")
+        gen_result = self.uploader.generate_boundary_template(tenant, name)
+
+        if not gen_result:
+            print(f"   ERROR: Template generation failed")
+            return None
+
+        # Step 4: Poll for completion and download
+        print(f"\n[4/4] Waiting for template...")
+        poll_result = self.uploader.poll_boundary_template_status(tenant, name)
+
+        if not poll_result or poll_result.get('status') == 'failed':
+            print(f"   ERROR: Template generation failed")
+            error = poll_result.get('error') if poll_result else 'Unknown error'
+            print(f"   Details: {error}")
+            return None
+
+        filestore_id = poll_result.get('fileStoreid')
+        if not filestore_id:
+            print(f"   ERROR: No filestore ID returned")
+            return None
+
+        # Download template
+        output_path = os.path.join(output_dir, f"Boundary_Template_{tenant}_{name}.xlsx")
+        downloaded_path = self.uploader.download_boundary_template(
+            tenant_id=tenant,
+            filestore_id=filestore_id,
+            hierarchy_type=name,
+            output_path=output_path
+        )
+
+        if downloaded_path:
+            print(f"\n{'─'*40}")
+            print(f"Template downloaded: {downloaded_path}")
+            print(f"{'─'*40}")
+            print(f"\nNext steps:")
+            print(f"1. Open {downloaded_path}")
+            print(f"2. Fill in boundary data (codes and names)")
+            print(f"3. Use loader.load_boundaries() to upload")
+            return downloaded_path
+        else:
+            print(f"   ERROR: Failed to download template")
+            return None
 
     def load_boundaries(self, excel_path: str, target_tenant: str = None,
                        hierarchy_type: str = "ADMIN") -> Dict:
