@@ -414,7 +414,7 @@ services:
     restart: "no"
 
   egov-user:
-    image: egovio/egov-user:master-fa75ba8
+    image: egovio/egov-user:dynamic-state-tenant
     container_name: egov-user
     depends_on:
       pgbouncer:
@@ -853,7 +853,7 @@ services:
   # HRMS Service - Employee management
   # ===========================================================================
   egov-hrms:
-    image: egovio/egov-hrms:hrms-boundary-0a4e737
+    image: egovio/egov-hrms:dynamic-state-tenant
     container_name: egov-hrms
     depends_on:
       pgbouncer:
