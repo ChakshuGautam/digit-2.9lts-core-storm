@@ -480,7 +480,7 @@ services:
     - egov-network
 
   egov-workflow-v2:
-    image: egovio/egov-workflow-v2:dynamic-state-tenant
+    image: egovio/egov-workflow-v2:jdk21-cds
     container_name: egov-workflow-v2
     depends_on:
       pgbouncer:
@@ -524,6 +524,7 @@ services:
       OTEL_SERVICE_NAME: egov-workflow-v2
       OTEL_METRICS_EXPORTER: none
       OTEL_LOGS_EXPORTER: none
+      SPRING_THREADS_VIRTUAL_ENABLED: 'true'
       JAVA_TOOL_OPTIONS: -Xms64m -Xmx256m -javaagent:/otel/opentelemetry-javaagent.jar
     ports:
     - 18109:8109
@@ -537,7 +538,7 @@ services:
     - egov-network
 
   egov-localization:
-    image: egovio/egov-localization:v2.9.2-4a60f20
+    image: egovio/egov-localization:module-scoped-oom-fix
     container_name: egov-localization
     depends_on:
       pgbouncer:
