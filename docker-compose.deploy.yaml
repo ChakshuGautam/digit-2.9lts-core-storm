@@ -538,7 +538,7 @@ services:
     - egov-network
 
   egov-localization:
-    image: egovio/egov-localization:module-scoped-oom-fix
+    image: egovio/egov-localization:jdk21-cds
     container_name: egov-localization
     depends_on:
       pgbouncer:
@@ -572,7 +572,8 @@ services:
       OTEL_TRACES_EXPORTER: none
       OTEL_METRICS_EXPORTER: none
       OTEL_LOGS_EXPORTER: none
-      JAVA_OPTS: -Xms256m -Xmx768m
+      SPRING_THREADS_VIRTUAL_ENABLED: 'true'
+      JAVA_OPTS: -Xms128m -Xmx512m
     ports:
     - 18096:8096
     healthcheck:
