@@ -572,7 +572,7 @@ services:
       OTEL_TRACES_EXPORTER: none
       OTEL_METRICS_EXPORTER: none
       OTEL_LOGS_EXPORTER: none
-      JAVA_TOOL_OPTIONS: -Xms256m -Xmx768m
+      JAVA_OPTS: -Xms256m -Xmx768m
     ports:
     - 18096:8096
     healthcheck:
